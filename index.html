@@ -1098,6 +1098,7 @@ async function completarMes(){
         const d=await fetchOrder(r.nf);
         const e={...(cache[r.nf]||{})};
         if(d){
+          if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}
           const ec=d.end_customer||{};
           if(isBlank(e.canal)||e.canal==='(sem dados)') e.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';
           if(isBlank(e.cep)) e.cep=ec.shipping_zip_code||d.destination_zip_code||'';
@@ -1114,7 +1115,7 @@ async function completarMes(){
       if(done%10===0){store.quotes=cache;setBar(done/Math.max(1,need.length));prog('Completando '+done+'/'+need.length+' (cotacoes achadas: '+found+')...');render();}
       await new Promise(s=>setTimeout(s,100));
     }
-    store.quotes=cache;applySkuMap();
+    store.quotes=cache;applySkuMap();store.rows=store.rows;
     prog('Concluido. Novos pedidos: '+added.length+' - notas completadas: '+done+' (cotacoes: '+found+'). Nada preenchido foi sobrescrito.');
     render();await autoBackup();
   }catch(e){
@@ -1368,6 +1369,7 @@ async function enrichQuotes(onlyMissing){
       const d=await fetchOrder(r.nf);
       let entry={...(cache[r.nf]||{})};
       if(d){
+        if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}
         entry.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';
         const ec=d.end_customer||{};
         entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; entry.cidade=ec.shipping_city||''; entry.uf=ec.shipping_state_code||''; entry.pedidoData=d.created_iso||d.created||'';
@@ -1384,7 +1386,7 @@ async function enrichQuotes(onlyMissing){
     if(done%10===0){store.quotes=cache;setBar(done/pending.length);prog(`Cotação histórica ${done}/${pending.length} (encontradas: ${found})...`);render();}
     await new Promise(s=>setTimeout(s,100));
   }
-  store.quotes=cache;prog(`Concluído: ${done} notas processadas (${found} cotações encontradas).`);
+  store.rows=store.rows;store.quotes=cache;prog(`Concluído: ${done} notas processadas (${found} cotações encontradas).`);
   toggleBusy(false);setBar(0);render();await autoBackup();
 }
 
@@ -1399,13 +1401,13 @@ async function pullCanais(){
   let done=0;
   for(const r of pending){
     if(STOP)break;
-    try{const d=await fetchOrder(r.nf);const e=cache[r.nf]||{};if(d){e.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';const ec=d.end_customer||{};e.cep=ec.shipping_zip_code||d.destination_zip_code||'';e.cidade=ec.shipping_city||'';e.uf=ec.shipping_state_code||'';e.pedidoData=d.created_iso||d.created||'';}else{e.canal='(sem dados)';e.pedidoData=e.pedidoData||'';}cache[r.nf]=e;}
+    try{const d=await fetchOrder(r.nf);const e=cache[r.nf]||{};if(d){if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}e.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';const ec=d.end_customer||{};e.cep=ec.shipping_zip_code||d.destination_zip_code||'';e.cidade=ec.shipping_city||'';e.uf=ec.shipping_state_code||'';e.pedidoData=d.created_iso||d.created||'';}else{e.canal='(sem dados)';e.pedidoData=e.pedidoData||'';}cache[r.nf]=e;}
     catch(err){const e=cache[r.nf]||{};e.canal=e.canal||'(erro)';cache[r.nf]=e;}
     done++;
     if(done%20===0){store.quotes=cache;setBar(done/pending.length);prog(`Canal ${done}/${pending.length}...`);render();}
     await new Promise(s=>setTimeout(s,80));
   }
-  store.quotes=cache;prog(`Canais concluídos (${done} notas).`);
+  store.rows=store.rows;store.quotes=cache;prog(`Canais concluídos (${done} notas).`);
   toggleBusy(false);setBar(0);render();await autoBackup();
 }
 function forceRecalc(){
