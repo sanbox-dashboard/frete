@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conciliação de Frete · Sanbox × Intelipost</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --or:#F5A623;--od:#D4881A;--bg:#F2F5F9;--wh:#fff;--bd:#E2E8F0;--tx:#1A1F2E;--mu:#7A8799;--dm:#E2E8F0;--gr:#16A34A;--re:#DC2626;--sh:0 1px 8px rgba(0,0,0,.07);
+    --card:#fff;--card2:#F7F9FC;--line:#E2E8F0;--txt:#1A1F2E;--mut:#7A8799;--accent:#F5A623;--accent2:#D4881A;--bad:#DC2626;--good:#16A34A;--warn:#D4881A;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:'Nunito',sans-serif;font-size:14px;line-height:1.5}
+  body::before{content:'';position:fixed;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--od),var(--or),#FFC85A,var(--or));z-index:99}
+  header{padding:14px 22px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--wh)}
+  header h1{font-size:18px;margin:0;font-weight:900;letter-spacing:.2px;color:var(--tx)}
+  header .sub{color:var(--mu);font-size:12px;font-weight:700}
+  .brandmark{width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,var(--or),var(--od));display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Bebas Neue';font-size:22px}
+  .hrow{display:flex;align-items:center;gap:12px;margin-left:auto;flex-wrap:wrap}
+  .live{display:flex;align-items:center;gap:5px;background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.3);padding:4px 11px;border-radius:999px;font-size:.62rem;font-weight:800;color:var(--od);text-transform:uppercase;letter-spacing:.1em}
+  .live .d{width:6px;height:6px;border-radius:50%;background:var(--or);animation:sonar 2s ease-in-out infinite}
+  @keyframes sonar{0%{box-shadow:0 0 0 0 rgba(245,166,35,.5)}70%{box-shadow:0 0 0 8px rgba(245,166,35,0)}100%{box-shadow:0 0 0 0 rgba(245,166,35,0)}}
+  .clock{font-family:'Bebas Neue';font-size:1.6rem;color:var(--od);line-height:1}
+  .pill{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .badge{font-size:11px;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);color:var(--mu);font-weight:700;background:var(--wh)}
+  .badge.ok{color:#fff;background:var(--gr);border-color:transparent}
+  .badge.err{color:#fff;background:var(--re);border-color:transparent}
+  .wrap{padding:18px 22px;max-width:1600px;margin:0 auto}
+  .card{background:var(--wh);border:1px solid var(--bd);border-radius:11px;padding:14px 16px;margin-bottom:14px;box-shadow:var(--sh)}
+  .card h2{font-size:.64rem;text-transform:uppercase;letter-spacing:.14em;color:var(--mu);margin:0 0 12px;font-weight:900;display:flex;align-items:center;gap:7px}
+  .card h2::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--or);flex:none}
+  button{font-family:'Nunito';font-weight:800;font-size:.72rem;cursor:pointer;border-radius:8px;border:1px solid var(--bd);background:var(--wh);color:var(--mu);padding:8px 13px;transition:.15s}
+  button:hover{border-color:var(--or);color:var(--or)}
+  button.primary{background:var(--or);color:#fff;border-color:transparent}
+  button.primary:hover{filter:brightness(1.06);color:#fff}
+  button.alt{background:var(--tx);color:#fff;border-color:transparent}
+  button.alt:hover{color:#fff;filter:brightness(1.15)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  input,textarea,select{font-family:'Nunito';font-size:.75rem;font-weight:700;background:var(--bg);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:8px 10px;width:100%}
+  textarea{resize:vertical;min-height:60px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;gap:10px}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+  .kpi{background:var(--wh);border:1px solid var(--bd);border-radius:11px;padding:12px 15px;box-shadow:var(--sh);position:relative;overflow:hidden}
+  .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--or)}
+  .kpi .lbl{color:var(--mu);font-size:.56rem;text-transform:uppercase;letter-spacing:.14em;font-weight:800}
+  .kpi .val{font-family:'Bebas Neue';font-size:2rem;line-height:1;margin-top:4px;color:var(--od)}
+  .kpi .sub{font-size:.6rem;color:var(--mu);margin-top:3px;font-weight:700}
+  .val.bad{color:var(--re)} .val.good{color:var(--gr)}
+  .muted{color:var(--mu)}
+  .progress{height:6px;background:var(--dm);border-radius:9px;overflow:hidden}
+  .progress>div{height:100%;width:0;background:var(--or);transition:.3s}
+  table{width:100%;border-collapse:collapse;font-size:.72rem}
+  th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--bd);white-space:nowrap}
+  th:first-child,td:first-child,th.l,td.l{text-align:left}
+  th{position:sticky;top:0;background:var(--bg);color:var(--mu);font-weight:800;cursor:pointer;user-select:none;font-size:.58rem;text-transform:uppercase;letter-spacing:.08em}
+  tbody tr:hover{background:var(--bg)}
+  .tbl-wrap{max-height:560px;overflow:auto;border:1px solid var(--bd);border-radius:10px}
+  .neg{color:var(--re);font-weight:800} .pos{color:var(--gr);font-weight:800}
+  .tag{font-size:10px;padding:2px 7px;border-radius:6px;background:var(--bg);color:var(--mu);font-weight:700}
+  .tag.out{background:rgba(220,38,38,.08);color:var(--re)} .tag.in{background:rgba(22,163,74,.08);color:var(--gr)}
+  .step{display:flex;gap:10px;align-items:flex-start;margin:8px 0;font-size:.75rem}
+  .step b{color:var(--od)}
+  code{background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:2px 6px;font-size:12px}
+  .bookmarklet{display:inline-block;background:var(--or);color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none;font-weight:800}
+  details summary{cursor:pointer;color:var(--od);font-size:12px;font-weight:800}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  .spacer{flex:1}
+  .hint{font-size:12px;color:var(--mu);font-weight:600}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
+  .filterbar{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;align-items:end}
+  .filterbar label{font-size:.56rem;color:var(--mu);text-transform:uppercase;letter-spacing:.1em;display:block;margin-bottom:4px;font-weight:800}
+  .mini{width:100%;border-collapse:collapse;font-size:12px}
+  .mini th,.mini td{padding:5px 8px;border-bottom:1px solid var(--bd);text-align:right}
+  .mini th.l,.mini td.l{text-align:left}
+  .mini select{width:auto;padding:3px 6px}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand" style="display:flex;align-items:center;gap:12px">
+    <div class="brandmark">S</div>
+    <div>
+      <h1>Conciliação de Frete <span class="muted">·</span> Sanbox</h1>
+      <div class="sub">Cotação × Custo da transportadora (CT-e) × Cobrado do cliente — 2026</div>
+    </div>
+  </div>
+  <div class="hrow">
+    <div class="live"><span class="d"></span>LIVE</div>
+    <div class="clock" id="clock">--:--:--</div>
+    <div class="pill">
+      <span id="tokBadge" class="badge err">Sem token</span>
+      <span id="updBadge" class="badge">Nunca atualizado</span>
+      <span id="folderBadge" class="badge">Pasta de backup: não definida</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="card" id="setupCard">
+    <h2>1 · Conectar à sua sessão Intelipost</h2>
+    <p class="hint">O custo do CT-e (o que a transportadora cobrou) vem do módulo interno de Conciliação, que exige o token da sua sessão logada. Ele expira a cada ~48h — quando expirar, repita este passo.</p>
+    <div class="step"><b>a.</b> <span>Deixe a aba do <b>TMS Intelipost</b> aberta e logada (secure.intelipost.com.br).</span></div>
+    <div class="step"><b>b.</b> <span>Arraste este botão para a barra de favoritos e clique nele enquanto estiver no TMS — ele copia o token: &nbsp; <a class="bookmarklet" href="javascript:(function(){try{var u=JSON.parse(localStorage['ls.user']);var t=u.access_token;navigator.clipboard.writeText(t).then(function(){alert('Token copiado! Cole no dashboard de conciliação.');},function(){prompt('Copie o token:',t);});}catch(e){alert('Abra esta pagina logado no TMS Intelipost.');}})();">📋 Copiar token Intelipost</a></span></div>
+    <div class="step"><b>c.</b> <span>Cole o token aqui e salve:</span></div>
+    <textarea id="tokInput" placeholder="Cole o token (começa com eyJ...)"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" onclick="saveToken()">Salvar token</button>
+      <span id="tokInfo" class="hint"></span>
+    </div>
+    <details style="margin-top:10px"><summary>Não consegue arrastar o favorito? Alternativa pelo console</summary>
+      <p class="hint">Na aba do TMS, aperte <code>F12</code> → aba <b>Console</b> → cole e Enter:<br>
+      <code>copy(JSON.parse(localStorage['ls.user']).access_token)</code><br>O token vai para a área de transferência; volte aqui e cole.</p>
+    </details>
+    <details style="margin-top:6px"><summary>Chave da API pública (re-cotação)</summary>
+      <p class="hint">Usada para calcular o valor da cotação. Já preenchida; troque se necessário.</p>
+      <input id="apiKey" value="249b7e9deaaccc35b5ff738f31300c73cbc37147ae196fb00316edfe12f29deb">
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>2 · Atualizar dados</h2>
+    <div class="toolbar">
+      <button id="btnNew" onclick="pullNew()">➕ Puxar só pedidos novos</button>
+      <button class="primary" id="btnComplete" onclick="completarMes()">🚀 Completar mês do filtro (novos + campos vazios)</button>
+      <button class="primary" id="btnPull" onclick="pullAll()">↻ Puxar CT-e × Cliente (2026 — atualiza tudo)</button>
+      <button id="btnCanal" onclick="pullCanais()">🏷 Puxar canal + endereço (rápido)</button>
+      <button id="btnQuote" onclick="enrichQuotes()">＄ Calcular cotação histórica + canal (lote)</button>
+      <button id="btnMissing" onclick="enrichQuotes(true)">🎯 Puxar só as faltantes (filtro)</button>
+      <button id="btnForce" onclick="forceRecalc()">🔄 Forçar recálculo</button>
+      <button id="btnStop" onclick="STOP=true" disabled>■ Parar</button>
+      <div class="spacer"></div>
+      <button class="alt" onclick="saveBackup(true)">💾 Salvar backup</button>
+      <button onclick="restoreBackup()">📂 Restaurar backup</button>
+      <button id="btnRepair" onclick="repairBackups()">🔧 Reparar cotações (juntar backups)</button>
+      <button onclick="setBackupFolder()">🗂 Definir pasta de backup</button>
+      <button id="btnSku" onclick="loadSkuMap(true)">📦 Carregar SKU/produto</button>
+    </div>
+    <div class="progress"><div id="bar"></div></div>
+    <div id="progressTxt" class="hint" style="margin-top:8px">Pronto.</div>
+  </div>
+
+  <div class="card">
+    <h2>4 · Fechamento das transportadoras <span class="muted">(confere CT-e e insere notas que faltam)</span></h2>
+    <p class="hint" style="margin-bottom:8px">Suba os arquivos de fechamento (Alfa, Brasil Web, Tecmar, Trilog, TEX/Total, MMA/Redivix .sswweb). O sistema detecta o formato, soma o CT-e por NF, corrige valores divergentes e insere as notas que não existem — na transportadora certa. Nada preenchido é apagado. Linhas cobradas em duplicidade são marcadas para você pedir estorno.</p>
+    <div class="toolbar">
+      <input type="file" id="fechInput" multiple accept=".csv,.xls,.xlsx,.sswweb" onchange="onFechFiles(this)" style="width:auto">
+    </div>
+    <div id="fechReview" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <h2>3 · Filtros <span class="muted">(o dashboard recalcula tudo sobre o filtro)</span></h2>
+    <div class="filterbar">
+      <div><label>Mês</label><select id="fMonth" onchange="render()"></select></div>
+      <div><label>Transportadora (CT-e)</label><select id="fCarrier" onchange="render()"></select></div>
+      <div><label>Canal de vendas</label><select id="fCanal" onchange="render()"></select></div>
+      <div><label>Estado (UF)</label><select id="fUF" onchange="render()"></select></div>
+      <div><label>Buscar (NF / pedido / cidade)</label><input id="search" placeholder="digite..." oninput="render()"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label class="hint"><input type="checkbox" id="onlyOver" style="width:auto" onchange="render()"> só onde a transportadora cobrou a mais</label>
+      <label class="hint"><input type="checkbox" id="onlyLoss" style="width:auto" onchange="render()"> só prejuízo</label>
+      <label class="hint"><input type="checkbox" id="onlyFech" style="width:auto" onchange="render()"> só notas do fechamento (inseridas)</label>
+      <label class="hint"><input type="checkbox" id="onlyDup" style="width:auto" onchange="render()"> só cobrança duplicada (pedir estorno)</label>
+      <div class="spacer"></div>
+      <button class="alt" onclick="exportXLSX()">⬇ Exportar Excel (filtro atual)</button>
+      <button onclick="exportCSV()">⬇ CSV</button>
+    </div>
+  </div>
+
+  <div class="grid kpis" id="kpis"></div>
+
+  <div class="card">
+    <h2>Por mês <span class="muted">(sobre o filtro atual)</span></h2>
+    <canvas id="chart" height="90"></canvas>
+    <p class="hint" style="margin-top:10px">
+      <span class="dot" style="background:var(--bad)"></span><b>Transportadora cobrou a mais que a cotação</b> (cotação − CT-e, quando negativo) &nbsp;·&nbsp;
+      <span class="dot" style="background:var(--good)"></span><b>Lucro</b> (cobrado do cliente − CT-e)
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Notas <span id="tblCount" class="muted"></span></h2>
+    <div class="tbl-wrap">
+      <table id="tbl">
+        <thead><tr>
+          <th class="l" data-k="nf">NF</th>
+          <th class="l" data-k="order">Pedido</th>
+          <th class="l" data-k="pedidoData">Data pedido</th>
+          <th class="l" data-k="month">Mês</th>
+          <th class="l" data-k="carrier">Transportadora (CT-e)</th>
+          <th class="l" data-k="canal">Canal</th>
+          <th class="l" data-k="cep">CEP</th>
+          <th class="l" data-k="cidade">Cidade</th>
+          <th class="l" data-k="uf">UF</th>
+          <th data-k="cotacao">Cotação</th>
+          <th data-k="cte">Transportadora cobrou</th>
+          <th data-k="tms">Cobrado do cliente</th>
+          <th data-k="cotVsCte">Cotação − Transp.</th>
+          <th data-k="lucro">Lucro (Cliente − Transp.)</th>
+          <th class="l" data-k="margin">Margem</th>
+          <th class="l" data-k="sku">SKU</th>
+          <th class="l" data-k="produto">Produto</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:10px"><b>Cotação − Transp.</b> negativo (vermelho) = a transportadora cobrou acima da cotação combinada. &nbsp; <b>Lucro</b> negativo = você cobrou do cliente menos do que a transportadora te cobrou. &nbsp; Canal aparece conforme as cotações são calculadas.</p>
+  </div>
+
+  <div class="card">
+    <h2>📊 Relatório por Estado e Canal <span class="muted">(respeita o filtro — selecione a transportadora, ex.: Alfa)</span></h2>
+    <div class="row" style="margin-bottom:12px"><button class="alt" onclick="exportReport()">⬇ Exportar relatório (Excel)</button></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:18px">
+      <div>
+        <div class="hint" style="margin-bottom:6px;font-weight:600">Por Estado (UF)</div>
+        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="l">UF</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th></tr></thead><tbody id="repUF"></tbody></table></div>
+      </div>
+      <div>
+        <div class="hint" style="margin-bottom:6px;font-weight:600">Por Canal de vendas</div>
+        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="l">Canal</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th></tr></thead><tbody id="repCanal"></tbody></table></div>
+      </div>
+    </div>
+    <div style="margin-top:18px">
+      <div class="hint" style="margin-bottom:6px;font-weight:600">Por Canal × Estado</div>
+      <div class="tbl-wrap" style="max-height:440px"><table><thead><tr><th class="l">Canal</th><th class="l">UF</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th></tr></thead><tbody id="repCombo"></tbody></table></div>
+    </div>
+    <p class="hint" style="margin-top:10px">Σ Transportadora (CT-e) = total que a transportadora cobrou. Cobrança a mais = quanto ela cobrou acima da cotação (só conta notas com cotação). Ordenado pela cobrança a mais.</p>
+  </div>
+
+  <p class="hint" style="text-align:center;margin:26px 0">Dados ao vivo da sua conta Intelipost (ID 22921). Cotação = valor REAL da cotação original (opção mais barata), buscada pelo CEP de destino na janela de até 4 dias antes da criação do pedido, casada pelo peso. "—" na cotação = não encontrada nessa janela. CT-e e valor do cliente são exatos do módulo de conciliação.</p>
+</div>
+
+<script>
+const GQL='https://graphql.intelipost.com.br';
+const API='https://api.intelipost.com.br/api/v1';
+const QUERY=`query($date_range:DateRangeInput,$search_by:String!,$search_values:[String],$page:Int,$limit:Int){preInvoicesV2(date_range:$date_range,search_by:$search_by,search_values:$search_values,page:$page,limit:$limit){total totalValue hasNextPage items{id cte{number serie company_name issue_date} invoice{order_number number serie value} status margin_status tms_value cte_value cte_complementary_value}}}`;
+const QUOTE_QUERY=`query($search_by:String,$search_value:String,$created_after:Date,$page:Int,$limit:Int,$sort_direction:String,$sort_field:String){quotations(search_by:$search_by,search_value:$search_value,created_after:$created_after,page:$page,limit:$limit,sort_direction:$sort_direction,sort_field:$sort_field){total hasNextPage items{id created logistic_provider{delivery_methods{name cost}} order{volumes{weight}}}}}`;
+const MESES=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const YEAR=2026;
+let STOP=false, chart=null, dirHandle=null, SKUMAP=null;
+// Substituição de "Cobrado do cliente" p/ pedidos Amazon por SKU+estado+período (aba Planilha1 de "Todos fretes.xlsx")
+const FRETE_RULES=[{s:"TI1514",sp:217,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1562",sp:210,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1558",sp:154,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1628",sp:266,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1565",sp:89,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1627",sp:276,mg:null,es:null,rj:null,i:"2026-04-06",f:"2026-05-31"},{s:"TI1690",sp:260,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1633",sp:226,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1571",sp:164,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1524",sp:154,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1580",sp:176,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1526",sp:128,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1676",sp:89,mg:null,es:null,rj:null,i:"2026-05-22",f:"2026-05-31"},{s:"TI1558",sp:154,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1565",sp:89,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1571",sp:164,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1524",sp:154,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1602",sp:169,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1690",sp:260,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1514",sp:217,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1580",sp:176,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1633",sp:226,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1627",sp:276,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1562",sp:210,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1676",sp:89,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1526",sp:128,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1558",sp:195,mg:null,es:null,rj:null,i:"2026-06-26",f:"2026-07-10"},{s:"TI1565",sp:150,mg:null,es:null,rj:null,i:"2026-06-26",f:"2026-07-10"},{s:"TI1571",sp:210,mg:143,es:281,rj:178,i:"2026-06-26",f:"2026-07-10"},{s:"TI1524",sp:190,mg:151,es:30,rj:181,i:"2026-06-26",f:"2026-07-10"},{s:"TI1602",sp:270,mg:170,es:271,rj:204,i:"2026-06-26",f:"2026-07-10"},{s:"TI1690",sp:171,mg:161,es:277,rj:233,i:"2026-06-26",f:"2026-07-10"},{s:"TI1514",sp:270,mg:262,es:289,rj:230,i:"2026-06-26",f:"2026-07-10"},{s:"TI1580",sp:195,mg:137,es:247,rj:180,i:"2026-06-26",f:"2026-07-10"},{s:"TI1633",sp:253,mg:180,es:266,rj:268,i:"2026-06-26",f:"2026-07-10"},{s:"TI1627",sp:282,mg:30,es:30,rj:310,i:"2026-06-26",f:"2026-07-10"},{s:"TI1562",sp:270,mg:198,es:285,rj:230,i:"2026-06-26",f:"2026-07-10"},{s:"TI1526",sp:190,mg:30,es:30,rj:180,i:"2026-06-26",f:"2026-07-10"}];
+function freteOverride(canal,uf,pedidoData,skuStr){
+  if(!canal||!/amazon/i.test(canal))return null;
+  const col={SP:'sp',MG:'mg',ES:'es',RJ:'rj'}[(uf||'').toUpperCase()];
+  if(!col)return null;
+  const day=(pedidoData||'').slice(0,10); if(!day)return null;
+  const skus=(skuStr||'').split(',').map(s=>s.trim()).filter(Boolean); if(!skus.length)return null;
+  const hits=[];
+  for(const r of FRETE_RULES){ if(skus.indexOf(r.s)<0)continue; if(r[col]==null)continue; if(day>=r.i&&day<=r.f)hits.push(r[col]); }
+  const uniq=[...new Set(hits)];
+  if(uniq.length===1)return {val:uniq[0]};
+  if(uniq.length>1)return {ambiguous:true};
+  return null;
+}
+
+// Agrupa nomes diferentes da mesma transportadora num único grupo
+const CARRIER_RULES=[
+  [/ALFA/,'Alfa Transportes'],
+  [/BRASIL ?WEB/,'Brasil Web'],
+  [/TECMAR/,'Tecmar'],
+  [/TEX ?COUR?RIER|^TEX\b/,'TEX Courier'],
+  [/TNT/,'TNT Mercúrio'],
+  [/TRILOG/,'Trilog Express'],
+  [/REDIVIX/,'Redivix'],
+  [/JAMEF/,'Jamef'],
+  [/\bMMA\b/,'Transportadora MMA'],
+  [/ATUAL/,'Atual Cargas'],
+  [/AMAZON/,'Amazon Logística'],
+  [/EBAZAR/,'eBazar'],
+  [/SHPX/,'SHPX'],
+  [/TRANSLOG/,'Expresso Translog Rio'],
+  [/TOTAL/,'Total Express']
+];
+function carrierGroup(name){
+  if(!name) return '(sem transportadora)';
+  const n=name.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim();
+  for(const [re,label] of CARRIER_RULES){ if(re.test(n)) return label; }
+  return name.replace(/\s+/g,' ').trim();
+}
+
+let MEM={rows:[],quotes:{}};
+const store={
+  get token(){return localStorage.getItem('cf.token')||''},
+  set token(v){localStorage.setItem('cf.token',v)},
+  get apikey(){return localStorage.getItem('cf.apikey')||(document.getElementById('apiKey')?document.getElementById('apiKey').value:'')},
+  set apikey(v){localStorage.setItem('cf.apikey',v)},
+  get rows(){return MEM.rows;},
+  set rows(v){MEM.rows=v||[];idbSet('rows',MEM.rows).catch(()=>{});},
+  get quotes(){return MEM.quotes;},
+  set quotes(v){MEM.quotes=v||{};idbSet('quotes',MEM.quotes).catch(()=>{});},
+  get updated(){return localStorage.getItem('cf.updated')||''},
+  set updated(v){localStorage.setItem('cf.updated',v)}
+};
+
+function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('cf-db',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
+async function idbSet(k,v){const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);});}
+async function idbGet(k){const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('kv','readonly');const q=t.objectStore('kv').get(k);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error);});}
+
+const brl=n=>(n==null||isNaN(n))?'—':n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const fmtDate=iso=>{try{return new Date(iso).toLocaleString('pt-BR')}catch(e){return iso}};
+const fmtDay=iso=>{if(!iso)return '—';const s=String(iso).slice(0,10).split('-');return s.length===3?s[2]+'/'+s[1]+'/'+s[0]:String(iso);};
+function jwtExp(t){try{return JSON.parse(atob(t.split('.')[1])).exp*1000}catch(e){return 0}}
+function setBar(p){document.getElementById('bar').style.width=(Math.max(0,Math.min(1,p))*100).toFixed(1)+'%';}
+function prog(t){document.getElementById('progressTxt').textContent=t;}
+
+function tokenStatus(){
+  const b=document.getElementById('tokBadge');const t=store.token;
+  if(!t){b.className='badge err';b.textContent='Sem token';return false;}
+  const exp=jwtExp(t);const ok=exp>Date.now();
+  b.className='badge '+(ok?'ok':'err');
+  b.textContent=ok?('Conectado · expira '+new Date(exp).toLocaleString('pt-BR')):'Token expirado';
+  return ok;
+}
+function saveToken(){
+  const t=document.getElementById('tokInput').value.trim();
+  const info=document.getElementById('tokInfo');
+  if(!t.startsWith('eyJ')){info.textContent='Token inválido (deve começar com eyJ).';return;}
+  store.token=t;store.apikey=document.getElementById('apiKey').value.trim();
+  document.getElementById('tokInput').value='';
+  info.textContent='Salvo!';tokenStatus();
+}
+
+async function gql(vars){
+  const r=await fetch(GQL,{method:'POST',headers:{'content-type':'application/json',Authorization:'Bearer '+store.token},body:JSON.stringify({query:QUERY,variables:vars})});
+  const j=await r.json();
+  if(j.errors) throw new Error(j.errors[0].message||'Erro GraphQL');
+  return j.data.preInvoicesV2;
+}
+async function pullMonth(m){
+  const end=new Date(YEAR,m,0).getDate();
+  const dr={start:`${YEAR}-${String(m).padStart(2,'0')}-01`,end:`${YEAR}-${String(m).padStart(2,'0')}-${end}`};
+  let page=1,out=[],hasNext=true,total=0;
+  while(hasNext){
+    if(STOP)break;
+    const pv=await gql({date_range:dr,search_by:'order_number',search_values:[],page,limit:500});
+    total=pv.total;
+    for(const it of pv.items){
+      const inv=(it.invoice&&it.invoice[0])||{};
+      out.push({nf:inv.number||'',order:inv.order_number||'',month:m,carrier:(it.cte&&it.cte.company_name)||'',cteNum:(it.cte&&it.cte.number)||'',issue:(it.cte&&it.cte.issue_date)||'',cte:(it.cte_value||0)+(it.cte_complementary_value||0),tms:it.tms_value||0,status:(it.status&&it.status.label)||'',margin:(it.margin_status&&it.margin_status.value)||''});
+    }
+    hasNext=pv.hasNextPage;page++;
+    prog(`Mês ${MESES[m]}: ${out.length}/${total} notas...`);
+  }
+  return out;
+}
+async function pullAll(silent){
+  if(!tokenStatus()){if(!silent)alert('Configure o token primeiro (passo 1).');return;}
+  if(!silent && store.rows.length && !confirm('Isso vai re-puxar CT-e × cliente de 2026 (rápido). Suas COTAÇÕES já calculadas serão preservadas. Continuar?'))return;
+  STOP=false;toggleBusy(true);
+  try{
+    const now=new Date();const lastM=(now.getFullYear()===YEAR)?now.getMonth()+1:12;
+    let all=[];
+    for(let m=1;m<=lastM;m++){ if(STOP)break; all=all.concat(await pullMonth(m)); setBar(m/lastM); }
+    if(!STOP){store.rows=all;store.updated=new Date().toISOString();applySkuMap();}
+    prog(`Concluído: ${all.length} notas carregadas.`);
+    render();await autoBackup();
+  }catch(e){
+    prog('Erro: '+e.message);
+    if(/autentic|401/i.test(e.message)){const b=document.getElementById('tokBadge');b.className='badge err';b.textContent='Token expirado';}
+  }
+  toggleBusy(false);setBar(0);
+}
+
+// Puxa SÓ os pedidos novos (NF ainda não presente). NÃO altera nenhum pedido existente.
+async function pullNew(silent){
+  if(!tokenStatus()){if(!silent)alert('Configure o token primeiro (passo 1).');return;}
+  STOP=false;toggleBusy(true);
+  try{
+    const existing=new Set(store.rows.map(r=>r.nf));
+    const now=new Date();const lastM=(now.getFullYear()===YEAR)?now.getMonth()+1:12;
+    let added=[];
+    for(let m=1;m<=lastM;m++){ if(STOP)break; const rows=await pullMonth(m); for(const r of rows){ if(r.nf && !existing.has(r.nf)){added.push(r);existing.add(r.nf);} } setBar(m/lastM); }
+    if(!STOP && added.length){ store.rows=store.rows.concat(added); store.updated=new Date().toISOString(); applySkuMap(); }
+    prog('Pedidos novos adicionados: '+added.length+'. Os antigos NÃO foram alterados.');
+    render();await autoBackup();
+  }catch(e){
+    prog('Erro: '+e.message);
+    if(/autentic|401/i.test(e.message)){const b=document.getElementById('tokBadge');b.className='badge err';b.textContent='Token expirado';}
+  }
+  toggleBusy(false);setBar(0);
+}
+
+// Botão único: completa o mês do filtro. Puxa pedidos NOVOS e preenche SÓ campos vazios (nunca sobrescreve o que já está completo).
+async function completarMes(){
+  if(!tokenStatus()){alert('Configure o token no passo 1 (usa sua sessão logada).');return;}
+  STOP=false;toggleBusy(true);
+  try{
+    const mf=document.getElementById('fMonth').value;
+    const monthSel=(mf&&mf!=='all')?Number(mf):null;
+    const now=new Date();const lastM=(now.getFullYear()===YEAR)?now.getMonth()+1:12;
+    const months=monthSel?[monthSel]:Array.from({length:lastM},(_,i)=>i+1);
+    // 1) pedidos NOVOS do(s) mes(es) do filtro (aditivo, nao mexe nos antigos)
+    const existing=new Set(store.rows.map(r=>r.nf));
+    let added=[];
+    for(const m of months){ if(STOP)break; const rows=await pullMonth(m); for(const r of rows){ if(r.nf&&!existing.has(r.nf)){added.push(r);existing.add(r.nf);} } }
+    if(added.length){ store.rows=store.rows.concat(added); store.updated=new Date().toISOString(); }
+    applySkuMap();
+    // 2) preenche campos VAZIOS (canal, CEP, cidade, UF, data, cotacao) - sem sobrescrever
+    const cache=store.quotes;
+    const isBlank=v=>v===undefined||v===null||v==='';
+    const scope=store.rows.filter(r=>r.nf&&(monthSel?r.month===monthSel:true));
+    const need=scope.filter(r=>{const c=cache[r.nf]||{};return isBlank(c.canal)||isBlank(c.cep)||isBlank(c.cidade)||isBlank(c.uf)||isBlank(c.pedidoData)||c.cotacao===undefined||c.cotacao===null;});
+    prog('Completando '+need.length+' notas'+(monthSel?(' de '+MESES[monthSel]):' (todos os meses)')+' - so campos vazios. Novos: '+added.length);
+    let done=0,found=0;
+    for(const r of need){
+      if(STOP)break;
+      try{
+        const d=await fetchOrder(r.nf);
+        const e={...(cache[r.nf]||{})};
+        if(d){
+          const ec=d.end_customer||{};
+          if(isBlank(e.canal)||e.canal==='(sem dados)') e.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';
+          if(isBlank(e.cep)) e.cep=ec.shipping_zip_code||d.destination_zip_code||'';
+          if(isBlank(e.cidade)) e.cidade=ec.shipping_city||'';
+          if(isBlank(e.uf)) e.uf=ec.shipping_state_code||'';
+          if(isBlank(e.pedidoData)) e.pedidoData=d.created_iso||d.created||'';
+          if(e.cotacao===undefined||e.cotacao===null){ const hq=await findHistoricalQuote(d); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }
+        }
+        cache[r.nf]=e;
+      }catch(err){
+        if(/autentic|401|token/i.test(err.message||'')){store.quotes=cache;applySkuMap();prog('Token expirado - renove no passo 1 e clique de novo (retoma de onde parou).');toggleBusy(false);setBar(0);render();return;}
+      }
+      done++;
+      if(done%10===0){store.quotes=cache;setBar(done/Math.max(1,need.length));prog('Completando '+done+'/'+need.length+' (cotacoes achadas: '+found+')...');render();}
+      await new Promise(s=>setTimeout(s,100));
+    }
+    store.quotes=cache;applySkuMap();
+    prog('Concluido. Novos pedidos: '+added.length+' - notas completadas: '+done+' (cotacoes: '+found+'). Nada preenchido foi sobrescrito.');
+    render();await autoBackup();
+  }catch(e){
+    prog('Erro: '+e.message);
+    if(/autentic|401/i.test(e.message)){const b=document.getElementById('tokBadge');b.className='badge err';b.textContent='Token expirado';}
+  }
+  toggleBusy(false);setBar(0);
+}
+
+// ===== 4 · Fechamento das transportadoras (conferencia de CT-e) =====
+let FECH=[];
+function normNF(v){ let s=String(v==null?'':v).trim(); if(!s)return ''; if(/\s/.test(s))s=s.split(/\s+/).pop(); s=s.split(/[.,]/)[0]; return s.replace(/\D/g,'').replace(/^0+/,''); }
+function brlNum(v){ if(v==null)return null; if(typeof v==='number')return v; let s=String(v).trim().replace(/\s/g,''); if(!s)return null; if(s.indexOf(',')>=0)s=s.replace(/\./g,'').replace(',','.'); const n=parseFloat(s); return isNaN(n)?null:n; }
+function fechMonth(v){ const s=String(v==null?'':v).trim(); let m=s.match(/^(\d{4})-(\d{2})/); if(m)return +m[2]; m=s.match(/^(\d{2})\/(\d{2})\//); if(m)return +m[2]; return 0; }
+const FECH_FORMATS=[
+  {id:'ssw',carrier:'REDIVIX',skip:2,nf:5,cte:7,cteNum:1,date:2,detect:r=>String((r[0]||[])[0]||'').toLowerCase().indexOf('fatura:')>=0||(r[1]||[]).join('|').toUpperCase().indexOf('COD. ULTIMA OCORRENCIA')>=0},
+  {id:'brasilweb',carrier:'BRASIL WEB',skip:1,nf:7,cte:10,cteNum:0,date:2,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('nomeocorrencia')>=0},
+  {id:'trilog',carrier:'TRILOG',skip:1,nf:1,cte:8,cteNum:0,date:6,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('numerocte')>=0},
+  {id:'tex',carrier:'TEX',skip:1,nf:12,cte:39,cteNum:1,date:22,detect:r=>{const h=(r[0]||[]).join('|').toLowerCase();return h.indexOf('total servico')>=0&&h.indexOf('nota fiscal')>=0;}},
+  {id:'alfa',carrier:'ALFA',skip:1,nf:3,cte:7,cteNum:2,date:8,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('valor_cte')>=0},
+  {id:'tecmar',carrier:'TECMAR',skip:1,nf:0,cte:15,cteNum:-1,date:1,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('valor ct-e')>=0}
+];
+function splitSemis(line){ const out=[];let cur='',q=false; for(let i=0;i<line.length;i++){const c=line[i]; if(q){ if(c==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; } else { if(c==='"')q=true; else if(c===';'){out.push(cur);cur='';} else cur+=c; } } out.push(cur); return out; }
+async function readFileRows(file){
+  const name=file.name.toLowerCase();
+  if(name.endsWith('.xls')||name.endsWith('.xlsx')){
+    const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'});
+    let sn=wb.SheetNames[0]; for(const x of wb.SheetNames){ if(/lista cargas|notas/i.test(x)){sn=x;break;} }
+    return XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:''});
+  }
+  const text=await file.text();
+  return text.replace(/^﻿/,'').split(/\r?\n/).filter(l=>l.length).map(splitSemis);
+}
+function parseFech(rows,fmt){
+  const cnt={},meta={};
+  for(let i=fmt.skip;i<rows.length;i++){ const r=rows[i]; if(!r)continue;
+    const nf=normNF(r[fmt.nf]); const val=brlNum(r[fmt.cte]); if(!nf||val==null)continue;
+    const ctn=fmt.cteNum>=0?String(r[fmt.cteNum]||''):''; const key=ctn+'|'+val.toFixed(2);
+    if(!cnt[nf]){cnt[nf]={};meta[nf]={month:fechMonth(r[fmt.date])};}
+    cnt[nf][key]=(cnt[nf][key]||0)+1;
+    if(!meta[nf].month)meta[nf].month=fechMonth(r[fmt.date]);
+  }
+  const byNF={};
+  for(const nf in cnt){ let cte=0,dq=0,dv=0;
+    for(const key in cnt[nf]){ const k=cnt[nf][key]; const val=parseFloat(key.split('|')[1]); cte+=val; if(k>1){dq+=(k-1);dv+=val*(k-1);} }
+    byNF[nf]={cte:Math.round(cte*100)/100,month:meta[nf].month||0,dupQtd:dq,dupValor:Math.round(dv*100)/100};
+  }
+  return byNF;
+}
+async function onFechFiles(input){
+  const files=[...input.files]; if(!files.length)return;
+  prog('Lendo '+files.length+' arquivo(s) de fechamento...');
+  const idx={}; store.rows.forEach(r=>{const k=normNF(r.nf); if(k&&!(k in idx))idx[k]=r.cte||0;});
+  for(const file of files){
+    try{
+      const rows=await readFileRows(file);
+      const fmt=FECH_FORMATS.find(x=>{try{return x.detect(rows);}catch(e){return false;}});
+      if(!fmt){ FECH.push({name:file.name,carrier:'?',byNF:{},err:'formato nao reconhecido'}); continue; }
+      const byNF=parseFech(rows,fmt);
+      let match=0,div=0,ins=0,sumNew=0,dup=0,dupVal=0;
+      for(const nf in byNF){ const v=byNF[nf]; if(v.dupQtd>0){dup++;dupVal+=v.dupValor;}
+        if(nf in idx){ match++; if(Math.abs(idx[nf]-v.cte)>0.01)div++; } else { ins++; sumNew+=v.cte; } }
+      FECH.push({name:file.name,fmtId:fmt.id,carrier:fmt.carrier,byNF,stats:{n:Object.keys(byNF).length,match,div,ins,sumNew,dup,dupVal}});
+    }catch(e){ FECH.push({name:file.name,carrier:'?',byNF:{},err:e.message}); }
+  }
+  renderFechReview();
+}
+function renderFechReview(){
+  const carriers=['ALFA','BRASIL WEB','TECMAR','TRILOG','TEX','TOTAL','MMA','REDIVIX','TNT','JAMEF','TRILOG EXPRESS'];
+  let tn=0,td=0,ti=0,ts=0,tdup=0,tdv=0;
+  const body=FECH.map((f,i)=>{
+    if(f.err)return '<tr><td class="l">'+f.name+'</td><td colspan="6" class="neg">'+f.err+'</td></tr>';
+    tn+=f.stats.n;td+=f.stats.div;ti+=f.stats.ins;ts+=f.stats.sumNew;tdup+=f.stats.dup;tdv+=f.stats.dupVal;
+    const opts=carriers.map(c=>'<option '+(c===f.carrier?'selected':'')+'>'+c+'</option>').join('');
+    return '<tr><td class="l">'+f.name+'</td><td class="l"><select onchange="FECH['+i+'].carrier=this.value">'+opts+'</select></td><td>'+f.stats.n+'</td><td>'+f.stats.match+'</td><td'+(f.stats.div?' class="neg"':'')+'>'+f.stats.div+'</td><td class="pos">'+f.stats.ins+'</td><td>'+brl(f.stats.sumNew)+'</td><td'+(f.stats.dup?' style="color:#ffb020"':'')+'>'+f.stats.dup+(f.stats.dup?(' ('+brl(f.stats.dupVal)+')'):'')+'</td></tr>';
+  }).join('');
+  document.getElementById('fechReview').innerHTML=
+    '<table class="mini"><thead><tr><th class="l">Arquivo</th><th class="l">Transportadora</th><th>NFs</th><th>No sistema</th><th>Diverg.</th><th>Novas</th><th>R$ novas</th><th>Duplicadas</th></tr></thead><tbody>'+body+'</tbody></table>'+
+    '<div class="row" style="margin-top:10px"><b>Total: '+td+' CT-e a corrigir · '+ti+' notas novas ('+brl(ts)+') · '+tdup+' com cobranca duplicada ('+brl(tdv)+' a estornar)</b><div class="spacer"></div><button onclick="FECH=[];document.getElementById(\'fechReview\').innerHTML=\'\';document.getElementById(\'fechInput\').value=\'\';">Cancelar</button> <button class="primary" onclick="aplicarFech()">✅ Aplicar fechamento</button></div>'+
+    '<p class="hint" style="margin-top:6px">Confira a transportadora de cada arquivo (ajuste MMA/Redivix/Total se preciso) antes de aplicar.</p>';
+}
+async function aplicarFech(){
+  if(!FECH.length){alert('Suba os arquivos primeiro.');return;}
+  const rows=store.rows;
+  const idx={}; rows.forEach((r,i)=>{const k=normNF(r.nf); if(k&&!(k in idx))idx[k]=i;});
+  let upd=0,ins=0,dupN=0;
+  for(const f of FECH){ if(f.err)continue;
+    for(const nf in f.byNF){ const info=f.byNF[nf]; const val=info.cte;
+      if(nf in idx){ const r=rows[idx[nf]];
+        if(Math.abs((r.cte||0)-val)>0.01){ if(r.cteOrig==null)r.cteOrig=r.cte; r.cte=val; r.cteFonte='fechamento'; upd++; }
+        if(info.dupQtd>0){ r.dupFech=true; r.dupQtd=info.dupQtd; r.dupValor=info.dupValor; r.carrierFech=f.carrier; dupN++; }
+      } else {
+        const row={nf:nf,order:'',month:info.month||0,carrier:f.carrier,cte:val,tms:0,status:'',margin:'',inserted:true,cteFonte:'fechamento'};
+        if(info.dupQtd>0){ row.dupFech=true; row.dupQtd=info.dupQtd; row.dupValor=info.dupValor; dupN++; }
+        rows.push(row); idx[nf]=rows.length-1; ins++;
+      }
+    }
+  }
+  store.rows=rows; store.updated=new Date().toISOString(); applySkuMap();
+  FECH=[]; document.getElementById('fechReview').innerHTML=''; document.getElementById('fechInput').value='';
+  ['fMonth','fCarrier','fUF','fCanal'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+  prog('Fechamento aplicado: '+upd+' CT-e corrigidos, '+ins+' notas novas inseridas, '+dupN+' com cobranca duplicada marcada (use o filtro "so cobranca duplicada" para pedir estorno).');
+  render(); await autoBackup();
+}
+
+async function fetchOrder(nf){
+  const r=await fetch(`${API}/shipment_order/invoice/${encodeURIComponent(nf)}`,{headers:{'api-key':store.apikey,Accept:'application/json'}});
+  if(!r.ok) return null;
+  const j=await r.json();return (j.content&&j.content[0])||null;
+}
+function quotePayload(d){
+  const vols=(d.shipment_order_volume_array||[]).map(v=>({weight:v.weight||1,volume_type:'BOX',cost_of_goods:(v.shipment_order_volume_invoice&&v.shipment_order_volume_invoice.invoice_products_value)||d.customer_shipping_costs||1,width:v.width||10,height:v.height||10,length:v.length||10}));
+  const dest=(d.end_customer&&d.end_customer.shipping_zip_code)||d.destination_zip_code;
+  return {origin_zip_code:(d.origin_zip_code||'').replace(/\D/g,''),destination_zip_code:(dest||'').replace(/\D/g,''),volumes:vols};
+}
+async function doQuote(payload){
+  if(!payload.volumes.length) return null;
+  const q=await fetch(`${API}/quote`,{method:'POST',headers:{'api-key':store.apikey,'content-type':'application/json',Accept:'application/json'},body:JSON.stringify(payload)});
+  if(!q.ok) return null;
+  const qj=await q.json();const opts=(qj.content&&qj.content.delivery_options)||[];
+  if(!opts.length) return {cotacao:null,carrierQuote:null};
+  let best=opts[0];for(const o of opts){if((o.provider_shipping_cost||1e9)<(best.provider_shipping_cost||1e9))best=o;}
+  return {cotacao:best.provider_shipping_cost,carrierQuote:best.delivery_method_name};
+}
+// ---- Cotação HISTÓRICA: busca a cotação real por CEP destino, na janela de 4 dias até a criação do pedido ----
+function ymdMinus(day0,n){const p=day0.split('-').map(Number);return new Date(Date.UTC(p[0],p[1]-1,p[2])-n*86400000).toISOString().slice(0,10);}
+async function quotationsDay(cep,dayStr){
+  const r=await fetch(GQL,{method:'POST',headers:{'content-type':'application/json',Authorization:'Bearer '+store.token},body:JSON.stringify({query:QUOTE_QUERY,variables:{search_by:'quote_destination_zip_code',search_value:cep,created_after:dayStr+'T00:00:00.000-03:00',page:1,limit:50,sort_direction:'desc',sort_field:'create_at'}})});
+  const j=await r.json(); if(j.errors) throw new Error(j.errors[0].message||'erro');
+  return (j.data&&j.data.quotations&&j.data.quotations.items)||[];
+}
+async function findHistoricalQuote(d){
+  const cep=((d.end_customer&&d.end_customer.shipping_zip_code)||d.destination_zip_code||'').replace(/\D/g,'');
+  if(!cep) return {cotacao:null};
+  const w=(d.shipment_order_volume_array||[]).reduce((s,v)=>s+(v.weight||0),0);
+  const day0=(d.created_iso||d.created||'').slice(0,10); if(!day0) return {cotacao:null};
+  const ot=new Date(d.created_iso||d.created).getTime();
+  let all=[];
+  for(let back=0;back<4;back++){
+    const items=await quotationsDay(cep,ymdMinus(day0,back));
+    for(const it of items){
+      const iw=(it.order&&it.order.volumes||[]).reduce((s,v)=>s+(v.weight||0),0);
+      const costs=(it.logistic_provider&&it.logistic_provider.delivery_methods||[]).map(m=>m.cost).filter(c=>c>0);
+      if(costs.length)all.push({cot:Math.min.apply(null,costs),qid:it.id,dt:Math.abs(new Date(it.created).getTime()-ot),back,wdiff:Math.abs(iw-w)});
+    }
+    if(all.some(c=>c.wdiff<=Math.max(3,w*0.05)))break; // já achou match estrito
+  }
+  if(!all.length) return {cotacao:null};
+  const strict=all.filter(c=>c.wdiff<=Math.max(3,w*0.05));
+  const pool=strict.length?strict:all.filter(c=>c.wdiff<=Math.max(10,w*0.25)); // fallback: peso próximo (±25%)
+  if(!pool.length) return {cotacao:null};
+  pool.sort((a,b)=>(a.wdiff-b.wdiff)||(a.dt-b.dt));
+  return {cotacao:pool[0].cot,quote_id:pool[0].qid,back:pool[0].back,approx:!strict.length};
+}
+async function enrichQuotes(onlyMissing){
+  const rows=store.rows;if(!rows.length){alert('Puxe os dados primeiro.');return;}
+  if(!tokenStatus()){alert('Configure o token no passo 1 (a busca de cotação histórica usa sua sessão).');return;}
+  STOP=false;toggleBusy(true);
+  const cache=store.quotes;
+  const fset=new Set(filtered().map(r=>r.nf));
+  const pending=rows.filter(r=>r.nf&&fset.has(r.nf)&&(onlyMissing?(!(r.nf in cache)||cache[r.nf].cotacao==null):(!(r.nf in cache)||cache[r.nf].v!=='hist')));
+  if(!pending.length){prog(onlyMissing?('Nada faltando no filtro atual — todas as '+fset.size+' notas do recorte já têm cotação.'):('Nada a recalcular no filtro atual — todas as '+fset.size+' notas já foram processadas. Use "🔄 Forçar recálculo" para refazer.'));toggleBusy(false);return;}
+  prog((onlyMissing?'Preenchendo só as faltantes (sem cotação): ':'Buscando cotação histórica + canal de ')+pending.length+' notas (no filtro atual). Já com cotação: '+(fset.size-pending.length));
+  let done=0,found=0;
+  for(const r of pending){
+    if(STOP)break;
+    try{
+      const d=await fetchOrder(r.nf);
+      let entry={...(cache[r.nf]||{})};
+      if(d){
+        entry.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';
+        const ec=d.end_customer||{};
+        entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; entry.cidade=ec.shipping_city||''; entry.uf=ec.shipping_state_code||''; entry.pedidoData=d.created_iso||d.created||'';
+        const hq=await findHistoricalQuote(d);
+        entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist';
+        if(hq.cotacao!=null)found++;
+      }else{ entry.canal=entry.canal||'(sem dados)'; entry.cotacao=null; entry.v='hist'; }
+      cache[r.nf]=entry;
+    }catch(e){
+      if(/autentic|401|token/i.test(e.message||'')){store.quotes=cache;prog('Token expirado — renove no passo 1 e clique de novo (retoma de onde parou).');toggleBusy(false);setBar(0);render();return;}
+      cache[r.nf]={...(cache[r.nf]||{}),v:'hist',cotacao:(cache[r.nf]&&cache[r.nf].cotacao)!=null?cache[r.nf].cotacao:null};
+    }
+    done++;
+    if(done%10===0){store.quotes=cache;setBar(done/pending.length);prog(`Cotação histórica ${done}/${pending.length} (encontradas: ${found})...`);render();}
+    await new Promise(s=>setTimeout(s,100));
+  }
+  store.quotes=cache;prog(`Concluído: ${done} notas processadas (${found} cotações encontradas).`);
+  toggleBusy(false);setBar(0);render();await autoBackup();
+}
+
+async function pullCanais(){
+  const rows=store.rows;if(!rows.length){alert('Puxe os dados primeiro.');return;}
+  STOP=false;toggleBusy(true);
+  const cache=store.quotes;
+  const fset=new Set(filtered().map(r=>r.nf));
+  const pending=rows.filter(r=>r.nf&&fset.has(r.nf)&&(!(r.nf in cache)||cache[r.nf].canal===undefined||cache[r.nf].cep===undefined||cache[r.nf].pedidoData===undefined));
+  if(!pending.length){prog('Nada a preencher no filtro atual — canal, endereço e data já presentes.');toggleBusy(false);return;}
+  prog(`Preenchendo canal + endereço (CEP/Cidade/UF) de ${pending.length} notas (no filtro atual, sem mexer nas cotações)...`);
+  let done=0;
+  for(const r of pending){
+    if(STOP)break;
+    try{const d=await fetchOrder(r.nf);const e=cache[r.nf]||{};if(d){e.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';const ec=d.end_customer||{};e.cep=ec.shipping_zip_code||d.destination_zip_code||'';e.cidade=ec.shipping_city||'';e.uf=ec.shipping_state_code||'';e.pedidoData=d.created_iso||d.created||'';}else{e.canal='(sem dados)';e.pedidoData=e.pedidoData||'';}cache[r.nf]=e;}
+    catch(err){const e=cache[r.nf]||{};e.canal=e.canal||'(erro)';cache[r.nf]=e;}
+    done++;
+    if(done%20===0){store.quotes=cache;setBar(done/pending.length);prog(`Canal ${done}/${pending.length}...`);render();}
+    await new Promise(s=>setTimeout(s,80));
+  }
+  store.quotes=cache;prog(`Canais concluídos (${done} notas).`);
+  toggleBusy(false);setBar(0);render();await autoBackup();
+}
+function forceRecalc(){
+  const rows=store.rows;if(!rows.length){alert('Puxe os dados primeiro.');return;}
+  const fset=new Set(filtered().map(r=>r.nf));
+  if(!confirm('Isso vai APAGAR as cotações/canal já calculados das '+fset.size+' notas do filtro atual e recalcular do zero (cotação histórica). Pode demorar. Continuar?'))return;
+  const cache=store.quotes;
+  // NÃO apaga o valor antigo — só marca para recalcular (mantém visível até ser sobrescrito)
+  for(const nf of Object.keys(cache)){ if(fset.has(nf)){ delete cache[nf].v; } }
+  store.quotes=cache;
+  enrichQuotes();
+}
+function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnRepair'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
+
+function backupData(){return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:store.rows,quotes:store.quotes};}
+async function ensurePerm(h,mode='readwrite'){ if(!h)return false; const o={mode}; if((await h.queryPermission(o))==='granted')return true; if((await h.requestPermission(o))==='granted')return true; return false; }
+async function setBackupFolder(){
+  if(!window.showDirectoryPicker){alert('Seu navegador não permite escolher pasta aqui. Use "Salvar backup" — ele baixa o arquivo normalmente.');return;}
+  try{ const h=await window.showDirectoryPicker({mode:'readwrite'}); dirHandle=h;await idbSet('backupDir',h); folderBadge(h.name); await saveBackup(true); }
+  catch(e){ if(e.name!=='AbortError') alert('Não foi possível definir a pasta: '+e.message); }
+}
+function folderBadge(name){document.getElementById('folderBadge').textContent=name?('Pasta de backup: '+name):'Pasta de backup: não definida';}
+async function loadFolder(){ try{const h=await idbGet('backupDir');if(h){dirHandle=h;folderBadge(h.name);}}catch(e){} }
+async function loadSkuMap(manual){
+  if(!dirHandle){ if(manual)alert('Defina a pasta de backup primeiro.'); return; }
+  try{
+    if(!await ensurePerm(dirHandle,'read')){ if(manual)alert('Sem permissão de leitura.'); return; }
+    const fh=await dirHandle.getFileHandle('sku-map.json'); const f=await fh.getFile();
+    SKUMAP=JSON.parse(await f.text());
+    const nAp=applySkuMap();
+    prog('SKU/produto carregado: '+Object.keys(SKUMAP).length.toLocaleString('pt-BR')+' pedidos na base. Gravado em '+nAp+' notas (agora persiste no backup). ('+(f.size/1048576).toFixed(1)+' MB)');
+    render();if(nAp)await autoBackup();
+  }catch(e){ if(manual)alert('Não achei sku-map.json na pasta de backup. Mova o arquivo baixado para lá.'); }
+}
+async function saveBackup(manual){
+  const data=JSON.stringify(backupData());
+  const fname='backup-conciliacao-2026.json';
+  if(dirHandle && await ensurePerm(dirHandle)){
+    try{
+      const fh=await dirHandle.getFileHandle(fname,{create:true});
+      const w=await fh.createWritable();await w.write(data);await w.close();
+      const stamp=new Date().toISOString().slice(0,10);
+      const fh2=await dirHandle.getFileHandle(`backup-conciliacao-${stamp}.json`,{create:true});
+      const w2=await fh2.createWritable();await w2.write(data);await w2.close();
+      prog('Backup salvo na pasta "'+dirHandle.name+'" ('+fname+').');return;
+    }catch(e){ prog('Falha ao salvar na pasta: '+e.message); }
+  }
+  if(manual && window.showSaveFilePicker){
+    try{
+      const fh=await window.showSaveFilePicker({suggestedName:fname,types:[{description:'JSON',accept:{'application/json':['.json']}}]});
+      const w=await fh.createWritable();await w.write(data);await w.close();
+      prog('Backup salvo.');return;
+    }catch(e){ if(e.name==='AbortError')return; }
+  }
+  const blob=new Blob([data],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;a.click();
+  prog('Backup baixado (fallback).');
+}
+async function autoBackup(){ if(dirHandle){ try{await saveBackup(false);}catch(e){} } }
+async function restoreBackup(){
+  // Sempre deixa VOCÊ escolher o arquivo (pra poder pegar uma cópia datada com as cotações)
+  let text=null;
+  if(window.showOpenFilePicker){
+    try{
+      const opts={types:[{description:'JSON',accept:{'application/json':['.json']}}]};
+      if(dirHandle)opts.startIn=dirHandle;
+      const [fh]=await window.showOpenFilePicker(opts);const f=await fh.getFile();text=await f.text();
+    }catch(e){if(e.name==='AbortError')return;}
+  }else{
+    const inp=document.createElement('input');inp.type='file';inp.accept='.json';
+    text=await new Promise(res=>{inp.onchange=()=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.readAsText(inp.files[0]);};inp.click();});
+  }
+  if(!text){prog('Nada restaurado.');return;}
+  try{
+    const d=JSON.parse(text);
+    // mescla mantendo a cotação do backup quando existir (não perde o que já tem)
+    if(d.quotes){const merged={...store.quotes};for(const nf in d.quotes){merged[nf]={...(merged[nf]||{}),...d.quotes[nf]};}store.quotes=merged;}
+    if(d.rows && (!store.rows.length || confirm('Substituir também a lista de notas (CT-e × cliente) pela do backup?'))) store.rows=d.rows;
+    if(d.updated) store.updated=d.updated;
+    ['fMonth','fCarrier','fCanal','fUF'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+    const withCot=Object.values(store.quotes).filter(q=>q&&q.cotacao!=null).length;
+    prog('Restaurado. Notas no cache com cotação: '+withCot+' · notas: '+store.rows.length+'.');
+    render();
+  }catch(e){alert('Arquivo de backup inválido: '+e.message);}
+}
+// Junta TODOS os backups da pasta, pegando a melhor cotação (numérica, preferindo histórica) por nota
+async function repairBackups(){
+  if(!dirHandle){alert('Defina a pasta de backup primeiro (botão "Definir pasta de backup").');return;}
+  if(!await ensurePerm(dirHandle,'read')){alert('Sem permissão de leitura na pasta.');return;}
+  toggleBusy(true);prog('Lendo backups da pasta...');
+  const merged={...store.quotes};let rowsBest=store.rows.slice();let files=0;
+  try{
+    for await (const [name,handle] of dirHandle.entries()){
+      if(handle.kind!=='file'||!/^backup-conciliacao.*\.json$/i.test(name))continue;
+      let d; try{const f=await handle.getFile();d=JSON.parse(await f.text());}catch(e){continue;}
+      files++;
+      if(Array.isArray(d.rows)&&d.rows.length>rowsBest.length)rowsBest=d.rows;
+      if(d.quotes){for(const nf in d.quotes){const src=d.quotes[nf]||{};const m={...(merged[nf]||{})};
+        if(src.cotacao!=null && (m.cotacao==null || (src.v==='hist'&&m.v!=='hist'))){ m.cotacao=src.cotacao; if(src.v)m.v=src.v; if(src.quote_id!=null){m.quote_id=src.quote_id;m.back=src.back;} }
+        for(const k of ['canal','cep','cidade','uf','pedidoData']){ if(!m[k]&&src[k])m[k]=src[k]; }
+        merged[nf]=m;
+      }}
+    }
+  }catch(e){prog('Erro lendo pasta: '+e.message);toggleBusy(false);return;}
+  store.quotes=merged;
+  if(rowsBest.length>store.rows.length)store.rows=rowsBest;
+  ['fMonth','fCarrier','fCanal','fUF'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+  const withCot=Object.values(merged).filter(q=>q&&q.cotacao!=null).length;
+  prog('Reparo concluído: '+files+' backups juntados · '+withCot+' notas com cotação · '+store.rows.length+' notas.');
+  toggleBusy(false);render();await autoBackup();
+}
+
+function applySkuMap(){
+  if(!SKUMAP)return 0;
+  const rows=store.rows;let n=0;
+  for(const r of rows){ if((!r.sku)&&r.order){ const sk=SKUMAP[String(r.order)]; if(sk){ r.sku=sk.sku; r.prod=sk.prod; n++; } } }
+  if(n)store.rows=rows;
+  return n;
+}
+function enriched(){
+  const q=store.quotes;
+  return store.rows.map(r=>{
+    const cq=q[r.nf]||{};const cot=(cq.cotacao===undefined)?null:cq.cotacao;
+    const skm=(SKUMAP&&r.order&&SKUMAP[String(r.order)])||null;
+    const skuStr=r.sku||(skm?skm.sku:'')||'';
+    const prodStr=r.prod||(skm?skm.prod:'')||'';
+    let tms=r.tms,tmsOrig=null,tmsAmbig=false;
+    const ov=freteOverride(cq.canal,cq.uf,cq.pedidoData,skuStr);
+    if(ov){ if(ov.ambiguous)tmsAmbig=true; else {tmsOrig=r.tms;tms=ov.val;} }
+    return {...r,grupo:carrierGroup(r.carrier),cotacao:cot,approx:cq.approx||false,canal:cq.canal||'',cep:cq.cep||'',cidade:cq.cidade||'',uf:cq.uf||'',pedidoData:cq.pedidoData||'',cotVsCte:(cot==null)?null:(cot-r.cte),sku:skuStr,produto:prodStr,tms:tms,tmsOrig:tmsOrig,tmsAmbig:tmsAmbig,lucro:(tms-r.cte)};
+  });
+}
+function filtered(){
+  let rows=enriched();
+  const mf=document.getElementById('fMonth').value;
+  if(mf&&mf!=='all')rows=rows.filter(r=>String(r.month)===mf);
+  const cf=document.getElementById('fCarrier').value;
+  if(cf&&cf!=='all')rows=rows.filter(r=>r.grupo===cf);
+  const kf=document.getElementById('fCanal').value;
+  if(kf&&kf!=='all')rows=rows.filter(r=>(r.canal||'(sem canal)')===kf);
+  const uf=document.getElementById('fUF').value;
+  if(uf&&uf!=='all')rows=rows.filter(r=>(r.uf||'(sem)')===uf);
+  const s=document.getElementById('search').value.trim().toLowerCase();
+  if(s)rows=rows.filter(r=>(r.nf+' '+r.order+' '+r.carrier+' '+r.canal+' '+r.cidade).toLowerCase().includes(s));
+  if(document.getElementById('onlyOver').checked)rows=rows.filter(r=>r.cotVsCte!=null&&r.cotVsCte<0);
+  if(document.getElementById('onlyLoss').checked)rows=rows.filter(r=>r.lucro<0);
+  if(document.getElementById('onlyFech')&&document.getElementById('onlyFech').checked)rows=rows.filter(r=>r.inserted);
+  if(document.getElementById('onlyDup')&&document.getElementById('onlyDup').checked)rows=rows.filter(r=>r.dupFech);
+  return rows;
+}
+let sortK='cotVsCte',sortDir=1;
+function buildFilters(){
+  const rows=enriched();
+  const fill=(el,vals)=>{ const cur=el.value; if(el.dataset.built&&el.dataset.count==vals.length)return;
+    el.innerHTML='<option value="all">Todos</option>'+vals.map(v=>`<option value="${v.v}">${v.t}</option>`).join('');
+    if(cur)el.value=cur; el.dataset.built='1'; el.dataset.count=vals.length; };
+  fill(document.getElementById('fMonth'),[...new Set(rows.map(r=>r.month))].sort((a,b)=>a-b).map(m=>({v:m,t:MESES[m]+'/'+YEAR})));
+  fill(document.getElementById('fCarrier'),[...new Set(rows.map(r=>r.grupo))].sort().map(c=>({v:c,t:c})));
+  fill(document.getElementById('fCanal'),[...new Set(rows.map(r=>r.canal).filter(Boolean))].sort().map(c=>({v:c,t:c})));
+  fill(document.getElementById('fUF'),[...new Set(rows.map(r=>r.uf).filter(Boolean))].sort().map(c=>({v:c,t:c})));
+}
+function render(){
+  buildFilters();
+  const rows=filtered();
+  const sum=(a,k)=>a.reduce((s,r)=>s+(r[k]||0),0);
+  const withCot=rows.filter(r=>r.cotacao!=null);
+  const overcharge=withCot.filter(r=>r.cotVsCte<0);
+  const totalOver=Math.abs(sum(overcharge,'cotVsCte'));
+  const lucroTot=sum(rows,'lucro');
+  const prejuizo=rows.filter(r=>r.lucro<0);
+  const kpis=[
+    {lbl:'Notas (no filtro)',val:rows.length,sub:withCot.length+' com cotação'},
+    {lbl:'Σ Cobrado do cliente',val:brl(sum(rows,'tms'))},
+    {lbl:'Σ Transportadora (CT-e)',val:brl(sum(rows,'cte'))},
+    {lbl:'Cobrança a mais da transportadora',val:brl(totalOver),cls:'bad',sub:overcharge.length+' notas acima da cotação'},
+    {lbl:'Σ Lucro (cliente − transp.)',val:brl(lucroTot),cls:lucroTot>=0?'good':'bad',sub:prejuizo.length+' notas em prejuízo'},
+  ];
+  document.getElementById('kpis').innerHTML=kpis.map(k=>`<div class="kpi"><div class="lbl">${k.lbl}</div><div class="val ${k.cls||''}">${k.val}</div><div class="sub">${k.sub||''}</div></div>`).join('');
+  rows.sort((a,b)=>{let x=a[sortK],y=b[sortK];if(x==null)x=1e12;if(y==null)y=1e12;if(typeof x==='string')return sortDir*x.localeCompare(y);return sortDir*(x-y);});
+  document.getElementById('tblCount').textContent='('+rows.length+')';
+  document.getElementById('tbody').innerHTML=rows.slice(0,1500).map(r=>{
+    const cv=r.cotVsCte;
+    const cvTxt=cv==null?'<span class="muted">—</span>':`<span class="${cv<0?'neg':'pos'}">${brl(cv)}</span>`;
+    const lu=`<span class="${r.lucro<0?'neg':'pos'}">${brl(r.lucro)}</span>`;
+    const mtag=r.margin==='OUT_OF_MARGIN'?'<span class="tag out">fora</span>':(r.margin==='IN_MARGIN'?'<span class="tag in">ok</span>':'<span class="tag">'+(r.margin||'—')+'</span>');
+    return `<tr><td class="l">${r.dupFech?'<span title="Cobranca duplicada no fechamento: '+r.dupQtd+'x (R$ '+(r.dupValor||0).toFixed(2).replace(".",",")+') - pedir estorno" style="color:#ffb020">⚠ </span>':''}${r.nf}${r.inserted?' <span class="muted" title="Nota inserida via fechamento (nao estava no sistema)">➕</span>':''}</td><td class="l muted">${r.order}</td><td class="l muted">${fmtDay(r.pedidoData)}</td><td class="l">${MESES[r.month]}</td><td class="l" title="${(r.carrier||'').replace(/"/g,'')}">${r.grupo||'—'}</td><td class="l muted">${r.canal||'—'}</td><td class="l muted">${r.cep||'—'}</td><td class="l muted">${r.cidade||'—'}</td><td class="l">${r.uf||'—'}</td><td${r.approx?' title="Cotação aproximada — o peso não bateu exato, peguei a cotação de peso mais próximo no mesmo período"':''}>${r.approx&&r.cotacao!=null?'≈ ':''}${brl(r.cotacao)}</td><td${r.cteFonte==='fechamento'?(' class="pos" title="CT-e do fechamento da transportadora'+(r.cteOrig!=null?' (original do sistema: '+brl(r.cteOrig)+')':'')+'"'):''}>${r.cteFonte==='fechamento'?'✓ ':''}${brl(r.cte)}</td><td${r.tmsOrig!=null?' class="pos" title="Frete substituído pela tabela Amazon (Planilha1). Original: '+brl(r.tmsOrig)+'"':(r.tmsAmbig?' class="neg" title="Vários SKUs bateram — não substituí (ambíguo)"':'')}>${r.tmsOrig!=null?'✎ ':''}${brl(r.tms)}</td><td>${cvTxt}</td><td>${lu}</td><td class="l">${mtag}</td><td class="l muted">${r.sku||'—'}</td><td class="l muted" title="${(r.produto||'').replace(/"/g,'')}">${(r.produto||'—').slice(0,60)}</td></tr>`;
+  }).join('')||'<tr><td colspan="17" class="muted" style="text-align:center;padding:24px">Sem dados no filtro. Configure o token e clique em “Puxar CT-e × Cliente”.</td></tr>';
+  drawChart(rows);
+  renderReport(rows);
+  const u=store.updated;document.getElementById('updBadge').textContent=u?('Atualizado '+fmtDate(u)):'Nunca atualizado';
+}
+function reportBy(rows,key){
+  const g={};
+  for(const r of rows){const k=(r[key]||'(sem)');if(!g[k])g[k]={n:0,cte:0,over:0,cot:0};g[k].n++;g[k].cte+=r.cte||0;if(r.cotacao!=null){g[k].cot++;if(r.cotVsCte<0)g[k].over+=(-r.cotVsCte);}}
+  return Object.entries(g).map(([k,v])=>({grupo:k,notas:v.n,cte:v.cte,over:v.over,cot:v.cot})).sort((a,b)=>b.over-a.over);
+}
+function reportCombo(rows){
+  const g={};
+  for(const r of rows){const canal=(r.canal||'(sem)'),uf=(r.uf||'(sem)'),k=canal+'||'+uf;
+    if(!g[k])g[k]={canal,uf,n:0,cte:0,over:0,cot:0};
+    g[k].n++;g[k].cte+=r.cte||0;if(r.cotacao!=null){g[k].cot++;if(r.cotVsCte<0)g[k].over+=(-r.cotVsCte);}}
+  return Object.values(g).sort((a,b)=>a.canal.localeCompare(b.canal)||b.over-a.over);
+}
+function renderReport(rows){
+  const fill=(id,data)=>{const el=document.getElementById(id);if(!el)return;el.innerHTML=data.map(d=>`<tr><td class="l">${d.grupo}</td><td>${d.notas}</td><td>${brl(d.cte)}</td><td class="${d.over>0?'neg':''}">${brl(d.over)}</td></tr>`).join('')||'<tr><td colspan="4" class="muted" style="text-align:center">Sem dados no filtro.</td></tr>';};
+  fill('repUF',reportBy(rows,'uf'));
+  fill('repCanal',reportBy(rows,'canal'));
+  const cel=document.getElementById('repCombo');
+  if(cel){const c=reportCombo(rows);cel.innerHTML=c.map(d=>`<tr><td class="l">${d.canal}</td><td class="l">${d.uf}</td><td>${d.n}</td><td>${brl(d.cte)}</td><td class="${d.over>0?'neg':''}">${brl(d.over)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted" style="text-align:center">Sem dados no filtro.</td></tr>';}
+}
+function exportReport(){
+  const rows=filtered();
+  const map=d=>({Grupo:d.grupo,Notas:d.notas,Soma_Transportadora_CTe:d.cte,Cobranca_a_mais:d.over,Notas_com_cotacao:d.cot});
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportBy(rows,'uf').map(map)),'Por Estado');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportBy(rows,'canal').map(map)),'Por Canal');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportCombo(rows).map(d=>({Canal:d.canal,UF:d.uf,Notas:d.n,Soma_Transportadora_CTe:d.cte,Cobranca_a_mais:d.over,Notas_com_cotacao:d.cot}))),'Canal x Estado');
+  const cf=document.getElementById('fCarrier').value;const suf=(cf&&cf!=='all')?('-'+cf.replace(/[^a-zA-Z]/g,'')):'';
+  XLSX.writeFile(wb,`relatorio-conciliacao${suf}.xlsx`);
+}
+function drawChart(rows){
+  const months=[...new Set(rows.map(r=>r.month))].sort((a,b)=>a-b);
+  const over=months.map(m=>Math.abs(rows.filter(r=>r.month===m&&r.cotVsCte!=null&&r.cotVsCte<0).reduce((s,r)=>s+r.cotVsCte,0)));
+  const lucro=months.map(m=>rows.filter(r=>r.month===m).reduce((s,r)=>s+r.lucro,0));
+  const labels=months.map(m=>MESES[m]);
+  if(chart)chart.destroy();
+  chart=new Chart(document.getElementById('chart'),{type:'bar',data:{labels,datasets:[{label:'Transportadora cobrou a mais',data:over,backgroundColor:'#ff5d6c'},{label:'Lucro (cliente − transp.)',data:lucro,backgroundColor:'#39d98a'}]},options:{responsive:true,plugins:{legend:{labels:{color:'#9aa3b2'}}},scales:{x:{ticks:{color:'#9aa3b2'},grid:{color:'#20242e'}},y:{ticks:{color:'#9aa3b2',callback:v=>'R$ '+v.toLocaleString('pt-BR')},grid:{color:'#20242e'}}}}});
+}
+function exportRows(){
+  return filtered().map(r=>({NF:r.nf,Pedido:r.order,Data_pedido:fmtDay(r.pedidoData),Mes:MESES[r.month],Transportadora:r.grupo,Transportadora_original:r.carrier,Canal:r.canal,CEP:r.cep,Cidade:r.cidade,UF:r.uf,Cotacao:r.cotacao,Transportadora_cobrou_CTe:r.cte,Cobrado_cliente_TMS:r.tms,Cobrado_cliente_original:(r.tmsOrig!=null?r.tmsOrig:''),Frete_substituido:(r.tmsOrig!=null?'SIM':''),Cotacao_menos_Transp:r.cotVsCte,Lucro_Cliente_menos_Transp:r.lucro,Fonte_CTe:(r.cteFonte||''),Inserida_fechamento:(r.inserted?'SIM':''),Cobranca_duplicada:(r.dupFech?(r.dupQtd+'x'):''),Valor_cobrado_a_mais_dup:(r.dupValor||''),Margem:r.margin,SKU:r.sku,Produto:r.produto}));
+}
+function exportXLSX(){
+  const data=exportRows();if(!data.length){alert('Sem dados no filtro.');return;}
+  const ws=XLSX.utils.json_to_sheet(data);
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Conciliacao');
+  const mf=document.getElementById('fMonth').value;const suf=(mf&&mf!=='all')?('-'+MESES[mf]):'';
+  XLSX.writeFile(wb,`conciliacao-frete-2026${suf}.xlsx`);
+}
+function exportCSV(){
+  const data=exportRows();if(!data.length)return;
+  const head=Object.keys(data[0]);
+  const lines=[head.join(';')].concat(data.map(o=>head.map(h=>String(o[h]==null?'':o[h]).replace(/;/g,',')).join(';')));
+  const blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='conciliacao-frete-2026.csv';a.click();
+}
+
+document.querySelectorAll('#tbl th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir*=-1;else{sortK=k;sortDir=1;}render();});
+
+async function autoUpdate(){
+  if(!tokenStatus())return; // precisa de token válido (sua sessão logada)
+  const last=Number(localStorage.getItem('cf.autoUpdate')||0);
+  if(Date.now()-last < 12*3600*1000){ return; } // já rodou nas últimas 12h
+  localStorage.setItem('cf.autoUpdate',String(Date.now()));
+  try{
+    prog('Atualização automática (máx 1x/12h): puxando só pedidos novos...');
+    await pullNew(true); // adiciona apenas NFs novas; NÃO altera os pedidos existentes nem re-processa nada.
+    prog('Pedidos novos adicionados. Antigos intactos. Cotação/canal/SKU e CT-e de notas antigas: use os botões quando quiser.');
+  }catch(e){ prog('Atualização automática interrompida: '+e.message); }
+}
+async function boot(){
+  // Carrega dados do IndexedDB (cota grande). Migra 1x do localStorage antigo, se houver, e libera a cota.
+  try{ MEM.rows=(await idbGet('rows'))||[]; }catch(e){ MEM.rows=[]; }
+  try{ MEM.quotes=(await idbGet('quotes'))||{}; }catch(e){ MEM.quotes={}; }
+  try{ const lr=JSON.parse(localStorage.getItem('cf.rows')||'[]'); if(lr.length && !MEM.rows.length){ MEM.rows=lr; await idbSet('rows',lr); } if(localStorage.getItem('cf.rows')!==null) localStorage.removeItem('cf.rows'); }catch(e){}
+  try{ const lq=JSON.parse(localStorage.getItem('cf.quotes')||'{}'); if(Object.keys(lq).length && !Object.keys(MEM.quotes).length){ MEM.quotes=lq; await idbSet('quotes',lq); } if(localStorage.getItem('cf.quotes')!==null) localStorage.removeItem('cf.quotes'); }catch(e){}
+  if(document.getElementById('apiKey'))document.getElementById('apiKey').value=store.apikey||document.getElementById('apiKey').value;
+  tokenStatus();setInterval(tokenStatus,60000);
+  render();
+  try{ await loadFolder(); await loadSkuMap(false); }catch(e){}
+  autoUpdate();
+}
+boot();
+(function(){function ck(){const c=document.getElementById("clock");if(c)c.textContent=new Date().toLocaleTimeString("pt-BR");}ck();setInterval(ck,1000);})();
+</script>
+</body>
+</html>
