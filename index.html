@@ -146,6 +146,8 @@
       <div class="spacer"></div>
       <button class="alt" onclick="saveBackup(true)">💾 Salvar backup</button>
       <button onclick="restoreBackup()">📂 Restaurar backup</button>
+      <button onclick="loadCloud(true)">☁ Carregar da nuvem</button>
+      <button class="alt" onclick="downloadCloudBackup()">⬇ backup.json (GitHub)</button>
       <button id="btnRepair" onclick="repairBackups()">🔧 Reparar cotações (juntar backups)</button>
       <button onclick="setBackupFolder()">🗂 Definir pasta de backup</button>
       <button id="btnSku" onclick="loadSkuMap(true)">📦 Carregar SKU/produto</button>
@@ -1669,12 +1671,35 @@ async function autoUpdate(){
     prog('Pedidos novos adicionados. Antigos intactos. Cotação/canal/SKU e CT-e de notas antigas: use os botões quando quiser.');
   }catch(e){ prog('Atualização automática interrompida: '+e.message); }
 }
+const CLOUD_URL='https://raw.githubusercontent.com/sanbox-dashboard/frete/main/backup.json';
+async function loadCloud(force){
+  try{
+    prog('Carregando dados da nuvem (GitHub)...');
+    const r=await fetch(CLOUD_URL+'?t='+Date.now(),{cache:'no-store'});
+    if(!r.ok){ if(force)alert('Ainda não há backup.json publicado no repositório frete. Gere com "backup.json (GitHub)" e suba lá.'); prog('Sem backup na nuvem ainda.'); return false; }
+    const d=await r.json();
+    if(d.quotes){ const m={...store.quotes}; for(const nf in d.quotes){ m[nf]={...(m[nf]||{}),...d.quotes[nf]}; } store.quotes=m; }
+    if(d.rows && (force || !store.rows.length)) store.rows=d.rows;
+    if(d.updated) store.updated=d.updated;
+    applySkuMap();
+    ['fMonth','fCarrier','fCanal','fUF'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+    prog('Nuvem carregada: '+store.rows.length+' notas'+(d.updated?(' · atualizado '+fmtDate(d.updated)):'')+'.');
+    render();
+    return true;
+  }catch(e){ if(force)alert('Erro ao carregar da nuvem: '+e.message); prog('Falha ao carregar da nuvem: '+e.message); return false; }
+}
+function downloadCloudBackup(){
+  const blob=new Blob([JSON.stringify(backupData())],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup.json'; a.click();
+  prog('backup.json gerado. Suba esse arquivo no repositório "frete" do GitHub (Add file → Upload) para sincronizar os aparelhos.');
+}
 async function boot(){
   // Carrega dados do IndexedDB (cota grande). Migra 1x do localStorage antigo, se houver, e libera a cota.
   try{ MEM.rows=(await idbGet('rows'))||[]; }catch(e){ MEM.rows=[]; }
   try{ MEM.quotes=(await idbGet('quotes'))||{}; }catch(e){ MEM.quotes={}; }
   try{ const lr=JSON.parse(localStorage.getItem('cf.rows')||'[]'); if(lr.length && !MEM.rows.length){ MEM.rows=lr; await idbSet('rows',lr); } if(localStorage.getItem('cf.rows')!==null) localStorage.removeItem('cf.rows'); }catch(e){}
   try{ const lq=JSON.parse(localStorage.getItem('cf.quotes')||'{}'); if(Object.keys(lq).length && !Object.keys(MEM.quotes).length){ MEM.quotes=lq; await idbSet('quotes',lq); } if(localStorage.getItem('cf.quotes')!==null) localStorage.removeItem('cf.quotes'); }catch(e){}
+  if(!MEM.rows.length){ try{ await loadCloud(false); }catch(e){} }
   if(document.getElementById('apiKey'))document.getElementById('apiKey').value=store.apikey||document.getElementById('apiKey').value;
   tokenStatus();setInterval(tokenStatus,60000);
   render();
