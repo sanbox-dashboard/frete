@@ -147,7 +147,7 @@
       <button class="alt" onclick="saveBackup(true)">💾 Salvar backup</button>
       <button onclick="restoreBackup()">📂 Restaurar backup</button>
       <button onclick="loadCloud(true)">☁ Carregar da nuvem</button>
-      <button class="alt" onclick="downloadCloudBackup()">⬇ backup.json (GitHub)</button>
+      <button class="alt" onclick="cloudSave()">☁ Salvar na nuvem</button>
       <button id="btnRepair" onclick="repairBackups()">🔧 Reparar cotações (juntar backups)</button>
       <button onclick="setBackupFolder()">🗂 Definir pasta de backup</button>
       <button id="btnSku" onclick="loadSkuMap(true)">📦 Carregar SKU/produto</button>
@@ -1671,13 +1671,15 @@ async function autoUpdate(){
     prog('Pedidos novos adicionados. Antigos intactos. Cotação/canal/SKU e CT-e de notas antigas: use os botões quando quiser.');
   }catch(e){ prog('Atualização automática interrompida: '+e.message); }
 }
-const CLOUD_URL='https://raw.githubusercontent.com/sanbox-dashboard/frete/main/backup.json';
+const FB_URL='https://sanbox-5ac59-default-rtdb.firebaseio.com/frete/backup.json';
 async function loadCloud(force){
   try{
-    prog('Carregando dados da nuvem (GitHub)...');
-    const r=await fetch(CLOUD_URL+'?t='+Date.now(),{cache:'no-store'});
-    if(!r.ok){ if(force)alert('Ainda não há backup.json publicado no repositório frete. Gere com "backup.json (GitHub)" e suba lá.'); prog('Sem backup na nuvem ainda.'); return false; }
-    const d=await r.json();
+    prog('Carregando dados da nuvem (Firebase)...');
+    const r=await fetch(FB_URL,{cache:'no-store'});
+    if(!r.ok){ if(force)alert('Erro '+r.status+' ao ler do Firebase.'); prog('Falha ao ler da nuvem ('+r.status+').'); return false; }
+    let raw=await r.json();
+    if(!raw){ if(force)alert('Ainda não há dados na nuvem. No PC, clique em "☁ Salvar na nuvem" primeiro.'); prog('Nuvem vazia ainda.'); return false; }
+    const d=(typeof raw==='string')?JSON.parse(raw):raw;
     if(d.quotes){ const m={...store.quotes}; for(const nf in d.quotes){ m[nf]={...(m[nf]||{}),...d.quotes[nf]}; } store.quotes=m; }
     if(d.rows && (force || !store.rows.length)) store.rows=d.rows;
     if(d.updated) store.updated=d.updated;
@@ -1688,10 +1690,14 @@ async function loadCloud(force){
     return true;
   }catch(e){ if(force)alert('Erro ao carregar da nuvem: '+e.message); prog('Falha ao carregar da nuvem: '+e.message); return false; }
 }
-function downloadCloudBackup(){
-  const blob=new Blob([JSON.stringify(backupData())],{type:'application/json'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='backup.json'; a.click();
-  prog('backup.json gerado. Suba esse arquivo no repositório "frete" do GitHub (Add file → Upload) para sincronizar os aparelhos.');
+async function cloudSave(){
+  try{
+    prog('Salvando na nuvem (Firebase)... pode levar alguns segundos.');
+    const body=JSON.stringify(JSON.stringify(backupData()));
+    const r=await fetch(FB_URL,{method:'PUT',body});
+    if(!r.ok){ const t=(await r.text()).slice(0,140); alert('Erro '+r.status+' ao salvar no Firebase: '+t); prog('Falha ao salvar na nuvem ('+r.status+').'); return; }
+    prog('✅ Salvo na nuvem: '+store.rows.length+' notas ('+(body.length/1048576).toFixed(1)+' MB). Em outro aparelho, toque em "☁ Carregar da nuvem".');
+  }catch(e){ alert('Erro ao salvar na nuvem: '+e.message); prog('Falha ao salvar na nuvem: '+e.message); }
 }
 async function boot(){
   // Carrega dados do IndexedDB (cota grande). Migra 1x do localStorage antigo, se houver, e libera a cota.
