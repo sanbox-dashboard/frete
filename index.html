@@ -1357,7 +1357,7 @@ async function findHistoricalQuote(d){
 }
 async function enrichQuotes(onlyMissing){
   const rows=store.rows;if(!rows.length){alert('Puxe os dados primeiro.');return;}
-  if(!tokenStatus()){alert('Configure o token no passo 1 (a busca de cotação histórica usa sua sessão).');return;}
+  let hasTok=tokenStatus(); if(!hasTok)prog('Sem token válido: preenchendo canal/CEP/UF/cobrado do cliente mesmo assim; cotação fica pendente até conectar o token.');
   STOP=false;toggleBusy(true);
   const cache=store.quotes;
   const fset=new Set(filtered().map(r=>r.nf));
@@ -1375,10 +1375,9 @@ async function enrichQuotes(onlyMissing){
         entry.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';
         const ec=d.end_customer||{};
         entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; entry.cidade=ec.shipping_city||''; entry.uf=ec.shipping_state_code||''; entry.pedidoData=d.created_iso||d.created||'';
-        const hq=await findHistoricalQuote(d);
-        entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist';
-        if(hq.cotacao!=null)found++;
-      }else{ entry.canal=entry.canal||'(sem dados)'; entry.cotacao=null; entry.v='hist'; }
+        cache[r.nf]=entry;
+        if(hasTok){ try{ const hq=await findHistoricalQuote(d); entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
+      }else{ entry.canal=entry.canal||'(sem dados)'; if(hasTok){entry.cotacao=null;entry.v='hist';} }
       cache[r.nf]=entry;
     }catch(e){
       if(/autentic|401|token/i.test(e.message||'')){store.quotes=cache;prog('Token expirado — renove no passo 1 e clique de novo (retoma de onde parou).');toggleBusy(false);setBar(0);render();return;}
