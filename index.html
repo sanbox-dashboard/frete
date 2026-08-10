@@ -107,6 +107,7 @@
 <div class="tabbar">
   <button class="tab on" id="tabBtnConc" onclick="showTab('conc',this)">📋 Conciliação de Frete</button>
   <button class="tab" id="tabBtnPrazos" onclick="showTab('prazos',this)">🚚 Prazos de Entrega</button>
+  <button class="tab" id="tabBtnFreteV" onclick="showTab('fretev',this)">🚚 Frete (Vendas)</button>
 </div>
 <div id="tab-conc" class="tabpanel">
 <div class="wrap">
@@ -135,22 +136,12 @@
   <div class="card">
     <h2>2 · Atualizar dados</h2>
     <div class="toolbar">
-      <button id="btnNew" onclick="pullNew()">➕ Puxar só pedidos novos</button>
-      <button class="primary" id="btnComplete" onclick="completarMes()">🚀 Completar mês do filtro (novos + campos vazios)</button>
-      <button class="primary" id="btnPull" onclick="pullAll()">↻ Puxar CT-e × Cliente (2026 — atualiza tudo)</button>
-      <button id="btnCanal" onclick="pullCanais()">🏷 Puxar canal + endereço (rápido)</button>
-      <button id="btnQuote" onclick="enrichQuotes()">＄ Calcular cotação histórica + canal (lote)</button>
-      <button id="btnMissing" onclick="enrichQuotes(true)">🎯 Puxar só as faltantes (filtro)</button>
-      <button id="btnForce" onclick="forceRecalc()">🔄 Forçar recálculo</button>
+      <button class="primary" id="btnComplete" onclick="completarMes()">🔄 Atualizar mês do filtro (novos + campos vazios)</button>
+      <button id="btnForce" onclick="forceRecalc()">🔄 Recalcular cotações (filtro)</button>
       <button id="btnStop" onclick="STOP=true" disabled>■ Parar</button>
       <div class="spacer"></div>
-      <button class="alt" onclick="saveBackup(true)">💾 Salvar backup</button>
-      <button onclick="restoreBackup()">📂 Restaurar backup</button>
       <button onclick="loadCloud(true)">☁ Carregar da nuvem</button>
       <button class="alt" onclick="cloudSave()">☁ Salvar na nuvem</button>
-      <button id="btnRepair" onclick="repairBackups()">🔧 Reparar cotações (juntar backups)</button>
-      <button onclick="setBackupFolder()">🗂 Definir pasta de backup</button>
-      <button id="btnSku" onclick="loadSkuMap(true)">📦 Carregar SKU/produto</button>
     </div>
     <div class="progress"><div id="bar"></div></div>
     <div id="progressTxt" class="hint" style="margin-top:8px">Pronto.</div>
@@ -915,6 +906,9 @@ renderPrazos();
 </body>
 </html>" title="Prazos de Entrega" style="width:100%;height:calc(100vh - 130px);border:0;background:var(--bg);display:block"></iframe>
 </div>
+<div id="tab-fretev" class="tabpanel" style="display:none">
+  <iframe id="frFrame" src="frete-vendas.html" title="Frete (Vendas)" style="width:100%;height:calc(100vh - 130px);border:0;background:var(--bg);display:block"></iframe>
+</div>
 
 <script>
 
@@ -1075,7 +1069,7 @@ async function pullNew(silent){
 
 // Botão único: completa o mês do filtro. Puxa pedidos NOVOS e preenche SÓ campos vazios (nunca sobrescreve o que já está completo).
 async function completarMes(){
-  if(!tokenStatus()){alert('Configure o token no passo 1 (usa sua sessão logada).');return;}
+  let hasTok=tokenStatus();
   STOP=false;toggleBusy(true);
   try{
     const mf=document.getElementById('fMonth').value;
@@ -1085,7 +1079,7 @@ async function completarMes(){
     // 1) pedidos NOVOS do(s) mes(es) do filtro (aditivo, nao mexe nos antigos)
     const existing=new Set(store.rows.map(r=>r.nf));
     let added=[];
-    for(const m of months){ if(STOP)break; const rows=await pullMonth(m); for(const r of rows){ if(r.nf&&!existing.has(r.nf)){added.push(r);existing.add(r.nf);} } }
+    if(hasTok){ for(const m of months){ if(STOP)break; const rows=await pullMonth(m); for(const r of rows){ if(r.nf&&!existing.has(r.nf)){added.push(r);existing.add(r.nf);} } } }
     if(added.length){ store.rows=store.rows.concat(added); store.updated=new Date().toISOString(); }
     applySkuMap();
     // 2) preenche campos VAZIOS (canal, CEP, cidade, UF, data, cotacao) - sem sobrescrever
@@ -1108,7 +1102,7 @@ async function completarMes(){
           if(isBlank(e.cidade)) e.cidade=ec.shipping_city||'';
           if(isBlank(e.uf)) e.uf=ec.shipping_state_code||'';
           if(isBlank(e.pedidoData)) e.pedidoData=d.created_iso||d.created||'';
-          if(e.cotacao===undefined||e.cotacao===null){ const hq=await findHistoricalQuote(d); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }
+          if(hasTok && (e.cotacao===undefined||e.cotacao===null)){ try{ const hq=await findHistoricalQuote(d); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
         }
         cache[r.nf]=e;
       }catch(err){
