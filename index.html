@@ -184,6 +184,14 @@
   <div class="grid kpis" id="kpis"></div>
 
   <div class="card">
+    <details>
+      <summary style="cursor:pointer;font-weight:900;font-size:.62rem;text-transform:uppercase;letter-spacing:.12em;color:var(--mu)">⚙ Fatores de cubagem por transportadora</summary>
+      <div id="cubFactors" style="margin-top:10px;display:flex;flex-wrap:wrap;align-items:center"></div>
+      <p class="hint" style="margin-top:8px">Cubagem = (L × A × P em metros) × fator (padrão 250). O <b>peso fica amarelo</b> quando é maior que a cubagem — nesse caso o frete é cobrado pelo peso real.</p>
+    </details>
+  </div>
+
+  <div class="card">
     <h2>Por mês <span class="muted">(sobre o filtro atual)</span></h2>
     <canvas id="chart" height="90"></canvas>
     <p class="hint" style="margin-top:10px">
@@ -198,6 +206,7 @@
       <table id="tbl">
         <thead><tr>
           <th class="l" data-k="nf">NF</th>
+          <th class="l" data-k="cteNumFech">CT-e nº</th>
           <th class="l" data-k="quoteId">ID Cotação</th>
           <th class="l" data-k="order">Pedido</th>
           <th class="l" data-k="pedidoData">Data pedido</th>
@@ -212,9 +221,13 @@
           <th data-k="tms">Cobrado do cliente</th>
           <th data-k="cotVsCte">Cotação − Transp.</th>
           <th data-k="lucro">Lucro (Cliente − Transp.)</th>
-          <th class="l" data-k="margin">Margem</th>
           <th class="l" data-k="sku">SKU</th>
           <th class="l" data-k="produto">Produto</th>
+          <th data-k="peso">Peso (kg)</th>
+          <th class="l" data-k="dimsStr">Dimensões</th>
+          <th data-k="cubagem">Cubagem cotação</th>
+          <th data-k="cubFech">Cubagem relatório</th>
+          <th class="l" data-k="cubDivergTxt">Diverg. cubagem</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
@@ -971,7 +984,9 @@ const store={
   get quotes(){return MEM.quotes;},
   set quotes(v){MEM.quotes=v||{};idbSet('quotes',MEM.quotes).catch(()=>{});},
   get updated(){return localStorage.getItem('cf.updated')||''},
-  set updated(v){localStorage.setItem('cf.updated',v)}
+  set updated(v){localStorage.setItem('cf.updated',v)},
+  get cubagem(){try{return JSON.parse(localStorage.getItem('cf.cubagem')||'{}')}catch(e){return{}}},
+  set cubagem(v){localStorage.setItem('cf.cubagem',JSON.stringify(v))}
 };
 
 function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('cf-db',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
@@ -1102,6 +1117,7 @@ async function completarMes(){
           if(isBlank(e.cidade)) e.cidade=ec.shipping_city||'';
           if(isBlank(e.uf)) e.uf=ec.shipping_state_code||'';
           if(isBlank(e.pedidoData)) e.pedidoData=d.created_iso||d.created||'';
+          if(d.shipment_order_volume_array&&d.shipment_order_volume_array.length){e.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
           if(hasTok && (e.cotacao===undefined||e.cotacao===null)){ try{ const hq=await findHistoricalQuote(d); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
         }
         cache[r.nf]=e;
@@ -1128,12 +1144,13 @@ function normNF(v){ let s=String(v==null?'':v).trim(); if(!s)return ''; if(/\s/.
 function brlNum(v){ if(v==null)return null; if(typeof v==='number')return v; let s=String(v).trim().replace(/\s/g,''); if(!s)return null; if(s.indexOf(',')>=0)s=s.replace(/\./g,'').replace(',','.'); const n=parseFloat(s); return isNaN(n)?null:n; }
 function fechMonth(v){ const s=String(v==null?'':v).trim(); let m=s.match(/^(\d{4})-(\d{2})/); if(m)return +m[2]; m=s.match(/^(\d{2})\/(\d{2})\//); if(m)return +m[2]; return 0; }
 const FECH_FORMATS=[
-  {id:'ssw',carrier:'REDIVIX',skip:2,nf:5,cte:7,cteNum:1,date:2,detect:r=>String((r[0]||[])[0]||'').toLowerCase().indexOf('fatura:')>=0||(r[1]||[]).join('|').toUpperCase().indexOf('COD. ULTIMA OCORRENCIA')>=0},
-  {id:'brasilweb',carrier:'BRASIL WEB',skip:1,nf:7,cte:10,cteNum:0,date:2,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('nomeocorrencia')>=0},
-  {id:'trilog',carrier:'TRILOG',skip:1,nf:1,cte:8,cteNum:0,date:6,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('numerocte')>=0},
-  {id:'tex',carrier:'TEX',skip:1,nf:12,cte:39,cteNum:1,date:22,detect:r=>{const h=(r[0]||[]).join('|').toLowerCase();return h.indexOf('total servico')>=0&&h.indexOf('nota fiscal')>=0;}},
-  {id:'alfa',carrier:'ALFA',skip:1,nf:3,cte:7,cteNum:2,date:8,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('valor_cte')>=0},
-  {id:'tecmar',carrier:'TECMAR',skip:1,nf:0,cte:15,cteNum:-1,date:1,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('valor ct-e')>=0}
+  {id:'ssw',carrier:'REDIVIX',skip:2,nf:5,cte:7,cteNum:1,cub:-1,date:2,detect:r=>String((r[0]||[])[0]||'').toLowerCase().indexOf('fatura:')>=0||(r[1]||[]).join('|').toUpperCase().indexOf('COD. ULTIMA OCORRENCIA')>=0},
+  {id:'brasilweb',carrier:'BRASIL WEB',skip:1,nf:7,cte:10,cteNum:0,cub:-1,date:2,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('nomeocorrencia')>=0},
+  {id:'trilog2',carrier:'TRILOG',skip:2,nf:53,cte:94,cteNum:10,cub:59,date:16,detect:r=>(((r[0]||[]).join('|')+'|'+(r[1]||[]).join('|')).toLowerCase().indexOf('composicao dos fretes')>=0)||((r[1]||[]).join('|').toLowerCase().indexOf('numero ct-e')>=0&&(r[1]||[]).join('|').toLowerCase().indexOf('peso calc')>=0)},
+  {id:'trilog',carrier:'TRILOG',skip:1,nf:1,cte:8,cteNum:0,cub:-1,date:6,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('numerocte')>=0},
+  {id:'tex',carrier:'TEX',skip:1,nf:12,cte:39,cteNum:1,cub:-1,date:22,detect:r=>{const h=(r[0]||[]).join('|').toLowerCase();return h.indexOf('total servico')>=0&&h.indexOf('nota fiscal')>=0;}},
+  {id:'alfa',carrier:'ALFA',skip:1,nf:3,cte:7,cteNum:2,cub:-1,date:8,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('valor_cte')>=0},
+  {id:'tecmar',carrier:'TECMAR',skip:1,nf:0,cte:15,cteNum:-1,cub:-1,date:1,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('valor ct-e')>=0}
 ];
 function splitSemis(line){ const out=[];let cur='',q=false; for(let i=0;i<line.length;i++){const c=line[i]; if(q){ if(c==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; } else { if(c==='"')q=true; else if(c===';'){out.push(cur);cur='';} else cur+=c; } } out.push(cur); return out; }
 async function readFileRows(file){
@@ -1147,18 +1164,21 @@ async function readFileRows(file){
   return text.replace(/^﻿/,'').split(/\r?\n/).filter(l=>l.length).map(splitSemis);
 }
 function parseFech(rows,fmt){
-  const cnt={},meta={};
+  const byKey={},meta={};
   for(let i=fmt.skip;i<rows.length;i++){ const r=rows[i]; if(!r)continue;
     const nf=normNF(r[fmt.nf]); const val=brlNum(r[fmt.cte]); if(!nf||val==null)continue;
-    const ctn=fmt.cteNum>=0?String(r[fmt.cteNum]||''):''; const key=ctn+'|'+val.toFixed(2);
-    if(!cnt[nf]){cnt[nf]={};meta[nf]={month:fechMonth(r[fmt.date])};}
-    cnt[nf][key]=(cnt[nf][key]||0)+1;
+    const ctn=fmt.cteNum>=0?String(r[fmt.cteNum]||'').trim():''; const key=ctn+'|'+val.toFixed(2);
+    const cub=(fmt.cub>=0)?(brlNum(r[fmt.cub])):null;
+    if(!byKey[nf]){byKey[nf]={};meta[nf]={month:fechMonth(r[fmt.date]),cteNum:''};}
+    if(!byKey[nf][key]){byKey[nf][key]={n:0,val:val,cub:cub};}
+    byKey[nf][key].n++;
     if(!meta[nf].month)meta[nf].month=fechMonth(r[fmt.date]);
+    if(!meta[nf].cteNum&&ctn)meta[nf].cteNum=ctn;
   }
   const byNF={};
-  for(const nf in cnt){ let cte=0,dq=0,dv=0;
-    for(const key in cnt[nf]){ const k=cnt[nf][key]; const val=parseFloat(key.split('|')[1]); cte+=val; if(k>1){dq+=(k-1);dv+=val*(k-1);} }
-    byNF[nf]={cte:Math.round(cte*100)/100,month:meta[nf].month||0,dupQtd:dq,dupValor:Math.round(dv*100)/100};
+  for(const nf in byKey){ let cte=0,dq=0,dv=0,cub=0,hasCub=false;
+    for(const key in byKey[nf]){ const e=byKey[nf][key]; cte+=e.val; if(e.n>1){dq+=(e.n-1);dv+=e.val*(e.n-1);} if(e.cub!=null){cub+=e.cub;hasCub=true;} }
+    byNF[nf]={cte:Math.round(cte*100)/100,month:meta[nf].month||0,dupQtd:dq,dupValor:Math.round(dv*100)/100,cteNum:meta[nf].cteNum||'',cub:(hasCub?Math.round(cub*100)/100:null)};
   }
   return byNF;
 }
@@ -1202,10 +1222,11 @@ async function aplicarFech(){
   for(const f of FECH){ if(f.err)continue;
     for(const nf in f.byNF){ const info=f.byNF[nf]; const val=info.cte;
       if(nf in idx){ const r=rows[idx[nf]];
+        if(info.cteNum)r.cteNumFech=info.cteNum; if(info.cub!=null)r.cubFech=info.cub;
         if(r.cteFonte==='xml'){continue;} if(Math.abs((r.cte||0)-val)>0.01){ if(r.cteOrig==null)r.cteOrig=r.cte; r.cte=val; r.cteFonte='fechamento'; upd++; }
         if(info.dupQtd>0){ r.dupFech=true; r.dupQtd=info.dupQtd; r.dupValor=info.dupValor; r.carrierFech=f.carrier; dupN++; }
       } else {
-        const row={nf:nf,order:'',month:info.month||0,carrier:f.carrier,cte:val,tms:0,status:'',margin:'',inserted:true,cteFonte:'fechamento'};
+        const row={nf:nf,order:'',month:info.month||0,carrier:f.carrier,cte:val,tms:0,status:'',margin:'',inserted:true,cteFonte:'fechamento',cteNumFech:info.cteNum||'',cubFech:(info.cub!=null?info.cub:null)};
         if(info.dupQtd>0){ row.dupFech=true; row.dupQtd=info.dupQtd; row.dupValor=info.dupValor; dupN++; }
         rows.push(row); idx[nf]=rows.length-1; ins++;
       }
@@ -1369,7 +1390,7 @@ async function enrichQuotes(onlyMissing){
         if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}
         entry.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';
         const ec=d.end_customer||{};
-        entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; entry.cidade=ec.shipping_city||''; entry.uf=ec.shipping_state_code||''; entry.pedidoData=d.created_iso||d.created||'';
+        entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; entry.cidade=ec.shipping_city||''; entry.uf=ec.shipping_state_code||''; entry.pedidoData=d.created_iso||d.created||''; if(d.shipment_order_volume_array&&d.shipment_order_volume_array.length){entry.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
         cache[r.nf]=entry;
         if(hasTok){ try{ const hq=await findHistoricalQuote(d); entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
       }else{ entry.canal=entry.canal||'(sem dados)'; if(hasTok){entry.cotacao=null;entry.v='hist';} }
@@ -1397,7 +1418,7 @@ async function pullCanais(){
   let done=0;
   for(const r of pending){
     if(STOP)break;
-    try{const d=await fetchOrder(r.nf);const e=cache[r.nf]||{};if(d){if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}e.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';const ec=d.end_customer||{};e.cep=ec.shipping_zip_code||d.destination_zip_code||'';e.cidade=ec.shipping_city||'';e.uf=ec.shipping_state_code||'';e.pedidoData=d.created_iso||d.created||'';}else{e.canal='(sem dados)';e.pedidoData=e.pedidoData||'';}cache[r.nf]=e;}
+    try{const d=await fetchOrder(r.nf);const e=cache[r.nf]||{};if(d){if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}e.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';const ec=d.end_customer||{};e.cep=ec.shipping_zip_code||d.destination_zip_code||'';e.cidade=ec.shipping_city||'';e.uf=ec.shipping_state_code||'';e.pedidoData=d.created_iso||d.created||'';if(d.shipment_order_volume_array&&d.shipment_order_volume_array.length){e.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}}else{e.canal='(sem dados)';e.pedidoData=e.pedidoData||'';}cache[r.nf]=e;}
     catch(err){const e=cache[r.nf]||{};e.canal=e.canal||'(erro)';cache[r.nf]=e;}
     done++;
     if(done%20===0){store.quotes=cache;setBar(done/pending.length);prog(`Canal ${done}/${pending.length}...`);render();}
@@ -1523,6 +1544,15 @@ function applySkuMap(){
   if(n)store.rows=rows;
   return n;
 }
+const CUB_DEFAULT=250;
+function cubFactor(grp){ const c=store.cubagem; const v=c[grp]; return (v!=null&&v!=='')?(+v):CUB_DEFAULT; }
+function setCub(grp,val){ const c=store.cubagem; c[grp]=(val===''||val==null)?'':(+val); store.cubagem=c; render(); }
+function renderCubFactors(){
+  const el=document.getElementById('cubFactors'); if(!el)return;
+  const grps=[...new Set(store.rows.map(r=>carrierGroup(r.carrier)).filter(Boolean))].sort();
+  const c=store.cubagem;
+  el.innerHTML=grps.map(g=>'<label style="display:inline-flex;align-items:center;gap:5px;font-size:.66rem;margin:3px 10px 3px 0"><b>'+g+'</b> <input type="number" step="1" style="width:74px;padding:4px 6px" value="'+((c[g]!=null&&c[g]!=='')?c[g]:'')+'" placeholder="'+CUB_DEFAULT+'" onchange="setCub(this.getAttribute(\'data-g\'),this.value)" data-g="'+g.replace(/"/g,'&quot;')+'"></label>').join('')||'<span class="hint">Sem transportadoras ainda.</span>';
+}
 function enriched(){
   const q=store.quotes;
   return store.rows.map(r=>{
@@ -1533,7 +1563,7 @@ function enriched(){
     let tms=r.tms,tmsOrig=null,tmsAmbig=false;
     const ov=freteOverride(cq.canal,cq.uf,cq.pedidoData,skuStr);
     if(ov){ if(ov.ambiguous)tmsAmbig=true; else {tmsOrig=r.tms;tms=ov.val;} }
-    return {...r,grupo:carrierGroup(r.carrier),cotacao:cot,approx:cq.approx||false,canal:cq.canal||'',cep:cq.cep||'',cidade:cq.cidade||'',uf:cq.uf||'',pedidoData:cq.pedidoData||'',quoteId:cq.quote_id||'',cotVsCte:(cot==null)?null:(cot-r.cte),sku:skuStr,produto:prodStr,tms:tms,tmsOrig:tmsOrig,tmsAmbig:tmsAmbig,lucro:(tms-r.cte)};
+    const _grp=carrierGroup(r.carrier); const _vols=cq.vols||[]; const _peso=_vols.reduce(function(x,v){return x+(v.p||0);},0); const _v0=_vols[0]; const _dims=_v0?('L:'+_v0.w+' A:'+_v0.h+' P:'+_v0.l):''; const _fat=cubFactor(_grp); const _cub=_vols.length?_vols.reduce(function(x,v){return x+((v.w/100)*(v.h/100)*(v.l/100)*_fat);},0):null; const _cubF=(r.cubFech!=null)?r.cubFech:null; const _cdiv=(_cubF!=null&&_cub!=null&&_cubF>_cub*1.05); const _cdivTxt=_cdiv?(_cubF.toLocaleString('pt-BR',{maximumFractionDigits:2})+' (+'+(_cubF-_cub).toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg)'):''; return {...r,grupo:_grp,cotacao:cot,peso:_peso,dimsStr:_dims,cubagem:_cub,pesoAlerta:(_cub!=null&&_peso>_cub),cteNumFech:r.cteNumFech||'',cubFech:_cubF,cubDiverg:_cdiv,cubDivergTxt:_cdivTxt,approx:cq.approx||false,canal:cq.canal||'',cep:cq.cep||'',cidade:cq.cidade||'',uf:cq.uf||'',pedidoData:cq.pedidoData||'',quoteId:cq.quote_id||'',cotVsCte:(cot==null)?null:(cot-r.cte),sku:skuStr,produto:prodStr,tms:tms,tmsOrig:tmsOrig,tmsAmbig:tmsAmbig,lucro:(tms-r.cte)};
   });
 }
 function filtered(){
@@ -1590,11 +1620,12 @@ function render(){
     const cvTxt=cv==null?'<span class="muted">—</span>':`<span class="${cv<0?'neg':'pos'}">${brl(cv)}</span>`;
     const lu=`<span class="${r.lucro<0?'neg':'pos'}">${brl(r.lucro)}</span>`;
     const mtag=r.margin==='OUT_OF_MARGIN'?'<span class="tag out">fora</span>':(r.margin==='IN_MARGIN'?'<span class="tag in">ok</span>':'<span class="tag">'+(r.margin||'—')+'</span>');
-    return `<tr><td class="l">${r.dupFech?'<span title="Cobranca duplicada no fechamento: '+r.dupQtd+'x (R$ '+(r.dupValor||0).toFixed(2).replace(".",",")+') - pedir estorno" style="color:#ffb020">⚠ </span>':''}${r.nf}${r.inserted?' <span class="muted" title="Nota inserida via fechamento (nao estava no sistema)">➕</span>':''}</td><td class="l muted" title="ID da cotação usada">${r.quoteId||'—'}</td><td class="l muted">${r.order}</td><td class="l muted">${fmtDay(r.pedidoData)}</td><td class="l">${MESES[r.month]}</td><td class="l" title="${(r.carrier||'').replace(/"/g,'')}">${r.grupo||'—'}</td><td class="l muted">${r.canal||'—'}</td><td class="l muted">${r.cep||'—'}</td><td class="l muted">${r.cidade||'—'}</td><td class="l">${r.uf||'—'}</td><td${r.approx?' title="Cotação aproximada — o peso não bateu exato, peguei a cotação de peso mais próximo no mesmo período"':''}>${r.approx&&r.cotacao!=null?'≈ ':''}${brl(r.cotacao)}</td><td${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?(' class="pos" title="CT-e do fechamento da transportadora'+(r.cteOrig!=null?' (original do sistema: '+brl(r.cteOrig)+')':'')+'"'):''}>${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?'✓ ':''}${brl(r.cte)}</td><td class="l">${fonteTag(r)}</td><td${r.tmsOrig!=null?' class="pos" title="Frete substituído pela tabela Amazon (Planilha1). Original: '+brl(r.tmsOrig)+'"':(r.tmsAmbig?' class="neg" title="Vários SKUs bateram — não substituí (ambíguo)"':'')}>${r.tmsOrig!=null?'✎ ':''}${brl(r.tms)}</td><td>${cvTxt}</td><td>${lu}</td><td class="l">${mtag}</td><td class="l muted">${r.sku||'—'}</td><td class="l muted" title="${(r.produto||'').replace(/"/g,'')}">${(r.produto||'—').slice(0,60)}</td></tr>`;
-  }).join('')||'<tr><td colspan="19" class="muted" style="text-align:center;padding:24px">Sem dados no filtro. Configure o token e clique em “Puxar CT-e × Cliente”.</td></tr>';
+    return `<tr><td class="l">${r.dupFech?'<span title="Cobranca duplicada no fechamento: '+r.dupQtd+'x (R$ '+(r.dupValor||0).toFixed(2).replace(".",",")+') - pedir estorno" style="color:#ffb020">⚠ </span>':''}${r.nf}${r.inserted?' <span class="muted" title="Nota inserida via fechamento (nao estava no sistema)">➕</span>':''}</td><td class="l muted" title="Nº do CT-e do relatório de fechamento">${r.cteNumFech||'—'}</td><td class="l muted" title="ID da cotação usada">${r.quoteId||'—'}</td><td class="l muted">${r.order}</td><td class="l muted">${fmtDay(r.pedidoData)}</td><td class="l">${MESES[r.month]}</td><td class="l" title="${(r.carrier||'').replace(/"/g,'')}">${r.grupo||'—'}</td><td class="l muted">${r.canal||'—'}</td><td class="l muted">${r.cep||'—'}</td><td class="l muted">${r.cidade||'—'}</td><td class="l">${r.uf||'—'}</td><td${r.approx?' title="Cotação aproximada — o peso não bateu exato, peguei a cotação de peso mais próximo no mesmo período"':''}>${r.approx&&r.cotacao!=null?'≈ ':''}${brl(r.cotacao)}</td><td${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?(' class="pos" title="CT-e do fechamento da transportadora'+(r.cteOrig!=null?' (original do sistema: '+brl(r.cteOrig)+')':'')+'"'):''}>${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?'✓ ':''}${brl(r.cte)}</td><td class="l">${fonteTag(r)}</td><td${r.tmsOrig!=null?' class="pos" title="Frete substituído pela tabela Amazon (Planilha1). Original: '+brl(r.tmsOrig)+'"':(r.tmsAmbig?' class="neg" title="Vários SKUs bateram — não substituí (ambíguo)"':'')}>${r.tmsOrig!=null?'✎ ':''}${brl(r.tms)}</td><td>${cvTxt}</td><td>${lu}</td><td class="l muted">${r.sku||'—'}</td><td class="l muted" title="${(r.produto||'').replace(/"/g,'')}">${(r.produto||'—').slice(0,60)}</td><td${r.pesoAlerta?' style="background:#fde68a;color:#7a5b00;font-weight:800" title="Peso real maior que a cubagem da cotação"':''}>${r.peso?r.peso.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td class="l muted">${r.dimsStr||'—'}</td><td>${r.cubagem!=null?r.cubagem.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td>${r.cubFech!=null?r.cubFech.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td${r.cubDiverg?' style="background:#fecaca;color:#7f1d1d;font-weight:800" title="Cubagem do relatório acima da cotação em mais de 5%"':''}>${r.cubDivergTxt||'—'}</td></tr>`;
+  }).join('')||'<tr><td colspan="24" class="muted" style="text-align:center;padding:24px">Sem dados no filtro. Configure o token e clique em “Puxar CT-e × Cliente”.</td></tr>';
   drawChart(rows);
   renderReport(rows);
   renderCteCustos(rows);
+  renderCubFactors();
   const u=store.updated;document.getElementById('updBadge').textContent=u?('Atualizado '+fmtDate(u)):'Nunca atualizado';
 }
 function reportBy(rows,key){
@@ -1635,7 +1666,7 @@ function drawChart(rows){
   chart=new Chart(document.getElementById('chart'),{type:'bar',data:{labels,datasets:[{label:'Transportadora cobrou a mais',data:over,backgroundColor:'#ff5d6c'},{label:'Lucro (cliente − transp.)',data:lucro,backgroundColor:'#39d98a'}]},options:{responsive:true,plugins:{legend:{labels:{color:'#9aa3b2'}}},scales:{x:{ticks:{color:'#9aa3b2'},grid:{color:'#20242e'}},y:{ticks:{color:'#9aa3b2',callback:v=>'R$ '+v.toLocaleString('pt-BR')},grid:{color:'#20242e'}}}}});
 }
 function exportRows(){
-  const rows=filtered();const cn=[];rows.forEach(r=>{if(r.comp)for(const k in r.comp){if(cn.indexOf(k)<0)cn.push(k);}});return rows.map(r=>{const o={NF:r.nf,ID_Cotacao:(r.quoteId||''),Pedido:r.order,Data_pedido:fmtDay(r.pedidoData),Mes:MESES[r.month],Transportadora:r.grupo,Transportadora_original:r.carrier,Canal:r.canal,CEP:r.cep,Cidade:r.cidade,UF:r.uf,Cotacao:r.cotacao,Transportadora_cobrou_CTe:r.cte,Cobrado_cliente_TMS:r.tms,Cobrado_cliente_original:(r.tmsOrig!=null?r.tmsOrig:''),Frete_substituido:(r.tmsOrig!=null?'SIM':''),Cotacao_menos_Transp:r.cotVsCte,Lucro_Cliente_menos_Transp:r.lucro,Fonte_CTe:(r.cteFonte||''),Inserida_fechamento:(r.inserted?'SIM':''),Cobranca_duplicada:(r.dupFech?(r.dupQtd+'x'):''),Valor_cobrado_a_mais_dup:(r.dupValor||''),Margem:r.margin,SKU:r.sku,Produto:r.produto};cn.forEach(n=>{o["CTe_"+n]=(r.comp&&r.comp[n]!=null)?r.comp[n]:"";});return o;});
+  const rows=filtered();const cn=[];rows.forEach(r=>{if(r.comp)for(const k in r.comp){if(cn.indexOf(k)<0)cn.push(k);}});return rows.map(r=>{const o={NF:r.nf,CTe_num_relatorio:(r.cteNumFech||''),ID_Cotacao:(r.quoteId||''),Pedido:r.order,Data_pedido:fmtDay(r.pedidoData),Mes:MESES[r.month],Transportadora:r.grupo,Transportadora_original:r.carrier,Canal:r.canal,CEP:r.cep,Cidade:r.cidade,UF:r.uf,Cotacao:r.cotacao,Transportadora_cobrou_CTe:r.cte,Cobrado_cliente_TMS:r.tms,Cobrado_cliente_original:(r.tmsOrig!=null?r.tmsOrig:''),Frete_substituido:(r.tmsOrig!=null?'SIM':''),Cotacao_menos_Transp:r.cotVsCte,Lucro_Cliente_menos_Transp:r.lucro,Fonte_CTe:(r.cteFonte||''),Inserida_fechamento:(r.inserted?'SIM':''),Cobranca_duplicada:(r.dupFech?(r.dupQtd+'x'):''),Valor_cobrado_a_mais_dup:(r.dupValor||''),SKU:r.sku,Produto:r.produto,Peso_kg:(r.peso||''),Dimensoes:(r.dimsStr||''),Cubagem_cotacao:(r.cubagem!=null?r.cubagem:''),Cubagem_relatorio:(r.cubFech!=null?r.cubFech:''),Divergencia_cubagem:(r.cubDivergTxt||'')};cn.forEach(n=>{o["CTe_"+n]=(r.comp&&r.comp[n]!=null)?r.comp[n]:"";});return o;});
 }
 function exportXLSX(){
   const data=exportRows();if(!data.length){alert('Sem dados no filtro.');return;}
