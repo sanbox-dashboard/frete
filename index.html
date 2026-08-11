@@ -201,7 +201,7 @@
   </div>
 
   <div class="card">
-    <h2>Notas <span id="tblCount" class="muted"></span></h2>
+    <h2>Notas <span id="tblCount" class="muted"></span> <button class="alt" style="float:right" onclick="openEdit(null)">➕ Nova linha manual</button></h2>
     <div class="tbl-wrap">
       <table id="tbl">
         <thead><tr>
@@ -228,6 +228,7 @@
           <th data-k="cubagem">Cubagem cotação</th>
           <th data-k="cubFech">Cubagem relatório</th>
           <th class="l" data-k="cubDivergTxt">Diverg. cubagem</th>
+          <th class="l">Ações</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
@@ -1620,8 +1621,8 @@ function render(){
     const cvTxt=cv==null?'<span class="muted">—</span>':`<span class="${cv<0?'neg':'pos'}">${brl(cv)}</span>`;
     const lu=`<span class="${r.lucro<0?'neg':'pos'}">${brl(r.lucro)}</span>`;
     const mtag=r.margin==='OUT_OF_MARGIN'?'<span class="tag out">fora</span>':(r.margin==='IN_MARGIN'?'<span class="tag in">ok</span>':'<span class="tag">'+(r.margin||'—')+'</span>');
-    return `<tr><td class="l">${r.dupFech?'<span title="Cobranca duplicada no fechamento: '+r.dupQtd+'x (R$ '+(r.dupValor||0).toFixed(2).replace(".",",")+') - pedir estorno" style="color:#ffb020">⚠ </span>':''}${r.nf}${r.inserted?' <span class="muted" title="Nota inserida via fechamento (nao estava no sistema)">➕</span>':''}</td><td class="l muted" title="Nº do CT-e do relatório de fechamento">${r.cteNumFech||'—'}</td><td class="l muted" title="ID da cotação usada">${r.quoteId||'—'}</td><td class="l muted">${r.order}</td><td class="l muted">${fmtDay(r.pedidoData)}</td><td class="l">${MESES[r.month]}</td><td class="l" title="${(r.carrier||'').replace(/"/g,'')}">${r.grupo||'—'}</td><td class="l muted">${r.canal||'—'}</td><td class="l muted">${r.cep||'—'}</td><td class="l muted">${r.cidade||'—'}</td><td class="l">${r.uf||'—'}</td><td${r.approx?' title="Cotação aproximada — o peso não bateu exato, peguei a cotação de peso mais próximo no mesmo período"':''}>${r.approx&&r.cotacao!=null?'≈ ':''}${brl(r.cotacao)}</td><td${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?(' class="pos" title="CT-e do fechamento da transportadora'+(r.cteOrig!=null?' (original do sistema: '+brl(r.cteOrig)+')':'')+'"'):''}>${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?'✓ ':''}${brl(r.cte)}</td><td class="l">${fonteTag(r)}</td><td${r.tmsOrig!=null?' class="pos" title="Frete substituído pela tabela Amazon (Planilha1). Original: '+brl(r.tmsOrig)+'"':(r.tmsAmbig?' class="neg" title="Vários SKUs bateram — não substituí (ambíguo)"':'')}>${r.tmsOrig!=null?'✎ ':''}${brl(r.tms)}</td><td>${cvTxt}</td><td>${lu}</td><td class="l muted">${r.sku||'—'}</td><td class="l muted" title="${(r.produto||'').replace(/"/g,'')}">${(r.produto||'—').slice(0,60)}</td><td${r.pesoAlerta?' style="background:#fde68a;color:#7a5b00;font-weight:800" title="Peso real maior que a cubagem da cotação"':''}>${r.peso?r.peso.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td class="l muted">${r.dimsStr||'—'}</td><td>${r.cubagem!=null?r.cubagem.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td>${r.cubFech!=null?r.cubFech.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td${r.cubDiverg?' style="background:#fecaca;color:#7f1d1d;font-weight:800" title="Cubagem do relatório acima da cotação em mais de 5%"':''}>${r.cubDivergTxt||'—'}</td></tr>`;
-  }).join('')||'<tr><td colspan="24" class="muted" style="text-align:center;padding:24px">Sem dados no filtro. Configure o token e clique em “Puxar CT-e × Cliente”.</td></tr>';
+    return `<tr><td class="l">${r.dupFech?'<span title="Cobranca duplicada no fechamento: '+r.dupQtd+'x (R$ '+(r.dupValor||0).toFixed(2).replace(".",",")+') - pedir estorno" style="color:#ffb020">⚠ </span>':''}${r.nf}${r.inserted?' <span class="muted" title="Nota inserida via fechamento (nao estava no sistema)">➕</span>':''}</td><td class="l muted" title="Nº do CT-e do relatório de fechamento">${r.cteNumFech||'—'}</td><td class="l muted" title="ID da cotação usada">${r.quoteId||'—'}</td><td class="l muted">${r.order}</td><td class="l muted">${fmtDay(r.pedidoData)}</td><td class="l">${MESES[r.month]}</td><td class="l" title="${(r.carrier||'').replace(/"/g,'')}">${r.grupo||'—'}</td><td class="l muted">${r.canal||'—'}</td><td class="l muted">${r.cep||'—'}</td><td class="l muted">${r.cidade||'—'}</td><td class="l">${r.uf||'—'}</td><td${r.approx?' title="Cotação aproximada — o peso não bateu exato, peguei a cotação de peso mais próximo no mesmo período"':''}>${r.approx&&r.cotacao!=null?'≈ ':''}${brl(r.cotacao)}</td><td${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?(' class="pos" title="CT-e do fechamento da transportadora'+(r.cteOrig!=null?' (original do sistema: '+brl(r.cteOrig)+')':'')+'"'):''}>${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?'✓ ':''}${brl(r.cte)}</td><td class="l">${fonteTag(r)}</td><td${r.tmsOrig!=null?' class="pos" title="Frete substituído pela tabela Amazon (Planilha1). Original: '+brl(r.tmsOrig)+'"':(r.tmsAmbig?' class="neg" title="Vários SKUs bateram — não substituí (ambíguo)"':'')}>${r.tmsOrig!=null?'✎ ':''}${brl(r.tms)}</td><td>${cvTxt}</td><td>${lu}</td><td class="l muted">${r.sku||'—'}</td><td class="l muted" title="${(r.produto||'').replace(/"/g,'')}">${(r.produto||'—').slice(0,60)}</td><td${r.pesoAlerta?' style="background:#fde68a;color:#7a5b00;font-weight:800" title="Peso real maior que a cubagem da cotação"':''}>${r.peso?r.peso.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td class="l muted">${r.dimsStr||'—'}</td><td>${r.cubagem!=null?r.cubagem.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td>${r.cubFech!=null?r.cubFech.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td${r.cubDiverg?' style="background:#fecaca;color:#7f1d1d;font-weight:800" title="Cubagem do relatório acima da cotação em mais de 5%"':''}>${r.cubDivergTxt||'—'}</td><td class="l" style="white-space:nowrap"><button class="btn-sm" title="Editar campos desta nota" onclick="openEdit('${String(r.nf).replace(/'/g,"")}')">✏️</button> <button class="btn-sm" title="Excluir esta nota" style="color:#dc2626;border-color:#f3c0c0" onclick="deleteRow('${String(r.nf).replace(/'/g,"")}')">🗑️</button></td></tr>`;
+  }).join('')||'<tr><td colspan="25" class="muted" style="text-align:center;padding:24px">Sem dados no filtro. Configure o token e clique em “Puxar CT-e × Cliente”.</td></tr>';
   drawChart(rows);
   renderReport(rows);
   renderCteCustos(rows);
@@ -1740,6 +1741,95 @@ async function boot(){
 boot();
 (function(){function ck(){const c=document.getElementById("clock");if(c)c.textContent=new Date().toLocaleTimeString("pt-BR");}ck();setInterval(ck,1000);})();
 function showTab(id,btn){document.querySelectorAll(".tabpanel").forEach(p=>{p.style.display="none";});document.getElementById("tab-"+id).style.display="";document.querySelectorAll(".tabbar .tab").forEach(t=>t.classList.remove("on"));btn.classList.add("on");}
+
+// ===== Edição / exclusão manual de linhas =====
+let EDIT_NF=null;
+function edGet(id){return document.getElementById(id).value.trim();}
+function edNum(id){const s=edGet(id);return s===''?null:parseFloat(s.replace(',','.'));}
+function edSet(id,v){document.getElementById(id).value=(v==null?'':v);}
+function openEdit(nf){
+  EDIT_NF=nf; // null => nova linha
+  const isNew=(nf==null);
+  const rr=isNew?{}:(store.rows.find(x=>String(x.nf)===String(nf))||{});
+  const q=isNew?{}:((store.quotes[nf])||{});
+  const v0=(q.vols&&q.vols[0])||{};
+  document.getElementById('ed_title').textContent=isNew?'➕ Nova linha manual':('✏️ Editar NF '+nf);
+  const nfBox=document.getElementById('ed_nfWrap'); nfBox.style.display=isNew?'flex':'none';
+  edSet('ed_newnf','');
+  edSet('ed_order',rr.order); edSet('ed_month',rr.month); edSet('ed_carrier',rr.carrier);
+  edSet('ed_canal',q.canal); edSet('ed_cep',q.cep); edSet('ed_cidade',q.cidade); edSet('ed_uf',q.uf);
+  edSet('ed_pedidoData',(q.pedidoData||'').slice(0,10)); edSet('ed_cotacao',q.cotacao);
+  edSet('ed_cte',rr.cte); edSet('ed_tms',rr.tms); edSet('ed_sku',rr.sku); edSet('ed_prod',rr.prod);
+  edSet('ed_peso',(q.vols||[]).reduce((s,v)=>s+(v.p||0),0)||''); edSet('ed_cubFech',rr.cubFech);
+  edSet('ed_w',v0.w); edSet('ed_h',v0.h); edSet('ed_l',v0.l);
+  document.getElementById('editOv').style.display='flex';
+}
+function closeEdit(){document.getElementById('editOv').style.display='none';EDIT_NF=null;}
+function saveEdit(){
+  const isNew=(EDIT_NF==null);
+  let nf=EDIT_NF;
+  if(isNew){ nf=edGet('ed_newnf').replace(/\D/g,'').replace(/^0+/,''); if(!nf){alert('Informe o número da NF.');return;} if(store.rows.some(x=>String(x.nf)===String(nf))){alert('Já existe uma linha com a NF '+nf+'. Edite a existente.');return;} }
+  let rr=store.rows.find(x=>String(x.nf)===String(nf));
+  if(!rr){ rr={nf:nf,order:'',month:0,carrier:'',cte:0,tms:0,sku:'',prod:'',inserted:true,manual:true}; store.rows=store.rows.concat([rr]); rr=store.rows.find(x=>String(x.nf)===String(nf)); }
+  const so=edGet('ed_order'); if(so!=='')rr.order=so;
+  const sm=edNum('ed_month'); if(sm!=null)rr.month=sm;
+  const sc=edGet('ed_carrier'); if(sc!=='')rr.carrier=sc;
+  const cte=edNum('ed_cte'); if(cte!=null){rr.cte=cte; if(!rr.cteFonte)rr.cteFonte='manual';}
+  const tms=edNum('ed_tms'); if(tms!=null)rr.tms=tms;
+  rr.sku=edGet('ed_sku'); rr.prod=edGet('ed_prod');
+  const cf=edNum('ed_cubFech'); if(cf!=null)rr.cubFech=cf;
+  // campos da cotação (store.quotes[nf])
+  const q={...(store.quotes[nf]||{})};
+  ['canal','cep','cidade','uf'].forEach(k=>{const val=edGet('ed_'+k); if(val!=='')q[k]=val;});
+  const pd=edGet('ed_pedidoData'); if(pd!=='')q.pedidoData=pd;
+  const cot=edNum('ed_cotacao'); if(cot!=null){q.cotacao=cot; if(!q.v)q.v='manual';}
+  const w=edNum('ed_w'),h=edNum('ed_h'),l=edNum('ed_l'),p=edNum('ed_peso');
+  if(w!=null||h!=null||l!=null||p!=null){ const cur=(q.vols&&q.vols[0])||{}; q.vols=[{w:(w!=null?w:cur.w||0),h:(h!=null?h:cur.h||0),l:(l!=null?l:cur.l||0),p:(p!=null?p:cur.p||0)}]; }
+  const allq=store.quotes; allq[nf]=q; store.quotes=allq;
+  store.rows=store.rows;
+  closeEdit(); render(); try{autoBackup();}catch(e){}
+}
+function deleteRow(nf){
+  if(!confirm('Excluir a NF '+nf+' do dashboard?\n\nA linha some da lista. Se ela vier da Intelipost, pode reaparecer ao puxar de novo — use para tirar linhas que não quer mais considerar.'))return;
+  store.rows=store.rows.filter(x=>String(x.nf)!==String(nf));
+  const q=store.quotes; delete q[nf]; store.quotes=q;
+  render(); try{autoBackup();}catch(e){}
+}
 </script>
+<div id="editOv" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:center;justify-content:center;padding:16px">
+  <style>#editOv label{display:flex;flex-direction:column;gap:4px;font:800 .6rem 'Nunito';color:var(--mu);text-transform:uppercase;letter-spacing:.03em}#editOv input{text-transform:none}</style>
+  <div style="background:var(--wh);border-radius:14px;max-width:700px;width:100%;max-height:90vh;overflow:auto;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 id="ed_title" style="margin:0">Editar</h2>
+      <button onclick="closeEdit()">✕</button>
+    </div>
+    <div id="ed_nfWrap" style="display:none;margin-bottom:12px"><label style="width:100%">Número da NF<input id="ed_newnf" inputmode="numeric"></label></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <label>Pedido<input id="ed_order"></label>
+      <label>Mês (1-12)<input id="ed_month" type="number" min="1" max="12"></label>
+      <label>Transportadora<input id="ed_carrier"></label>
+      <label>Canal<input id="ed_canal"></label>
+      <label>CEP<input id="ed_cep"></label>
+      <label>Cidade<input id="ed_cidade"></label>
+      <label>UF<input id="ed_uf" maxlength="2"></label>
+      <label>Data pedido (AAAA-MM-DD)<input id="ed_pedidoData" placeholder="2026-06-15"></label>
+      <label>Cotação (R$)<input id="ed_cotacao" type="number" step="0.01"></label>
+      <label>Transportadora cobrou (R$)<input id="ed_cte" type="number" step="0.01"></label>
+      <label>Cobrado do cliente (R$)<input id="ed_tms" type="number" step="0.01"></label>
+      <label>Cubagem relatório (kg)<input id="ed_cubFech" type="number" step="0.01"></label>
+      <label>Peso (kg)<input id="ed_peso" type="number" step="0.01"></label>
+      <label>Largura (cm)<input id="ed_w" type="number" step="0.1"></label>
+      <label>Altura (cm)<input id="ed_h" type="number" step="0.1"></label>
+      <label>Comprimento (cm)<input id="ed_l" type="number" step="0.1"></label>
+      <label>SKU<input id="ed_sku"></label>
+      <label style="grid-column:span 2">Produto<input id="ed_prod"></label>
+    </div>
+    <p class="hint" style="margin-top:12px">Campos em branco não sobrescrevem o que já existe. <b>Cubagem cotação</b> e <b>Diverg. cubagem</b> são recalculadas automaticamente a partir de peso/dimensões e da cubagem do relatório.</p>
+    <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+      <button onclick="closeEdit()">Cancelar</button>
+      <button class="alt" onclick="saveEdit()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
