@@ -1101,7 +1101,7 @@ async function completarMes(){
     const cache=store.quotes;
     const isBlank=v=>v===undefined||v===null||v==='';
     const scope=store.rows.filter(r=>r.nf&&(monthSel?r.month===monthSel:true));
-    const need=scope.filter(r=>{const c=cache[r.nf]||{};return isBlank(c.canal)||isBlank(c.cep)||isBlank(c.cidade)||isBlank(c.uf)||isBlank(c.pedidoData)||c.cotacao===undefined||c.cotacao===null;});
+    const need=scope.filter(r=>{const c=cache[r.nf]||{};return isBlank(c.canal)||isBlank(c.cep)||isBlank(c.cidade)||isBlank(c.uf)||isBlank(c.pedidoData)||c.cotacao===undefined||c.cotacao===null||!(c.vols&&c.vols.length);});
     prog('Completando '+need.length+' notas'+(monthSel?(' de '+MESES[monthSel]):' (todos os meses)')+' - so campos vazios. Novos: '+added.length);
     let done=0,found=0;
     for(const r of need){
@@ -1377,7 +1377,7 @@ async function enrichQuotes(onlyMissing){
   STOP=false;toggleBusy(true);
   const cache=store.quotes;
   const fset=new Set(filtered().map(r=>r.nf));
-  const pending=rows.filter(r=>r.nf&&fset.has(r.nf)&&(onlyMissing?(!(r.nf in cache)||cache[r.nf].cotacao==null):(!(r.nf in cache)||cache[r.nf].v!=='hist')));
+  const pending=rows.filter(r=>r.nf&&fset.has(r.nf)&&(onlyMissing?(!(r.nf in cache)||cache[r.nf].cotacao==null||!(cache[r.nf].vols&&cache[r.nf].vols.length)):(!(r.nf in cache)||cache[r.nf].v!=='hist')));
   if(!pending.length){prog(onlyMissing?('Nada faltando no filtro atual — todas as '+fset.size+' notas do recorte já têm cotação.'):('Nada a recalcular no filtro atual — todas as '+fset.size+' notas já foram processadas. Use "🔄 Forçar recálculo" para refazer.'));toggleBusy(false);return;}
   prog((onlyMissing?'Preenchendo só as faltantes (sem cotação): ':'Buscando cotação histórica + canal de ')+pending.length+' notas (no filtro atual). Já com cotação: '+(fset.size-pending.length));
   let done=0,found=0;
