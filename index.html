@@ -1146,7 +1146,7 @@ function brlNum(v){ if(v==null)return null; if(typeof v==='number')return v; let
 function fechMonth(v){ const s=String(v==null?'':v).trim(); let m=s.match(/^(\d{4})-(\d{2})/); if(m)return +m[2]; m=s.match(/^(\d{2})\/(\d{2})\//); if(m)return +m[2]; return 0; }
 const FECH_FORMATS=[
   {id:'ssw',carrier:'REDIVIX',skip:2,nf:5,cte:7,cteNum:1,cub:-1,date:2,detect:r=>String((r[0]||[])[0]||'').toLowerCase().indexOf('fatura:')>=0||(r[1]||[]).join('|').toUpperCase().indexOf('COD. ULTIMA OCORRENCIA')>=0},
-  {id:'brasilweb',carrier:'BRASIL WEB',skip:1,nf:7,cte:10,cteNum:0,cub:-1,date:2,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('nomeocorrencia')>=0},
+  {id:'brasilweb',carrier:'BRASIL WEB',skip:1,nf:7,cte:10,cteNum:0,cub:9,date:2,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('nomeocorrencia')>=0},
   {id:'trilog2',carrier:'TRILOG',skip:2,nf:53,cte:94,cteNum:10,cub:59,date:16,detect:r=>(((r[0]||[]).join('|')+'|'+(r[1]||[]).join('|')).toLowerCase().indexOf('composicao dos fretes')>=0)||((r[1]||[]).join('|').toLowerCase().indexOf('numero ct-e')>=0&&(r[1]||[]).join('|').toLowerCase().indexOf('peso calc')>=0)},
   {id:'trilog',carrier:'TRILOG',skip:1,nf:1,cte:8,cteNum:0,cub:-1,date:6,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('numerocte')>=0},
   {id:'tex',carrier:'TEX',skip:1,nf:12,cte:39,cteNum:1,cub:-1,date:22,detect:r=>{const h=(r[0]||[]).join('|').toLowerCase();return h.indexOf('total servico')>=0&&h.indexOf('nota fiscal')>=0;}},
