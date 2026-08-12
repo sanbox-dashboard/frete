@@ -949,6 +949,8 @@ function freteOverride(canal,uf,pedidoData,skuStr){
   return null;
 }
 
+// Olist ERP = pedidos da Amazon → normaliza o canal (também faz a tabela de frete fixo Amazon valer)
+function mapCanal(v){ return /olist/i.test(v||'') ? 'Amazon' : (v||''); }
 // Agrupa nomes diferentes da mesma transportadora num único grupo
 const CARRIER_RULES=[
   [/ALFA/,'Alfa Transportes'],
@@ -1113,7 +1115,7 @@ async function completarMes(){
         if(d){
           if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}
           const ec=d.end_customer||{};
-          if(isBlank(e.canal)||e.canal==='(sem dados)') e.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';
+          if(isBlank(e.canal)||e.canal==='(sem dados)') e.canal=mapCanal(d.sales_channel||d.sales_channel_name)||'(sem canal)';
           if(isBlank(e.cep)) e.cep=ec.shipping_zip_code||d.destination_zip_code||'';
           if(isBlank(e.cidade)) e.cidade=ec.shipping_city||'';
           if(isBlank(e.uf)) e.uf=ec.shipping_state_code||'';
@@ -1389,7 +1391,7 @@ async function enrichQuotes(onlyMissing){
       let entry={...(cache[r.nf]||{})};
       if(d){
         if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}
-        entry.canal=d.sales_channel||d.sales_channel_name||'(sem canal)';
+        entry.canal=mapCanal(d.sales_channel||d.sales_channel_name)||'(sem canal)';
         const ec=d.end_customer||{};
         entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; entry.cidade=ec.shipping_city||''; entry.uf=ec.shipping_state_code||''; entry.pedidoData=d.created_iso||d.created||''; if(d.shipment_order_volume_array&&d.shipment_order_volume_array.length){entry.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
         cache[r.nf]=entry;
@@ -1562,9 +1564,10 @@ function enriched(){
     const skuStr=r.sku||(skm?skm.sku:'')||'';
     const prodStr=r.prod||(skm?skm.prod:'')||'';
     let tms=r.tms,tmsOrig=null,tmsAmbig=false;
-    const ov=freteOverride(cq.canal,cq.uf,cq.pedidoData,skuStr);
+    const _canal=mapCanal(cq.canal);
+    const ov=freteOverride(_canal,cq.uf,cq.pedidoData,skuStr);
     if(ov){ if(ov.ambiguous)tmsAmbig=true; else {tmsOrig=r.tms;tms=ov.val;} }
-    const _grp=carrierGroup(r.carrier); const _vols=cq.vols||[]; const _peso=_vols.reduce(function(x,v){return x+(v.p||0);},0); const _v0=_vols[0]; const _dims=_v0?('L:'+_v0.w+' A:'+_v0.h+' P:'+_v0.l):''; const _fat=cubFactor(_grp); const _cub=_vols.length?_vols.reduce(function(x,v){return x+((v.w/100)*(v.h/100)*(v.l/100)*_fat);},0):null; const _cubF=(r.cubFech!=null)?r.cubFech:null; const _cdiv=(_cubF!=null&&_cub!=null&&_cubF>_cub*1.05); const _cdivTxt=_cdiv?(_cubF.toLocaleString('pt-BR',{maximumFractionDigits:2})+' (+'+(_cubF-_cub).toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg)'):''; return {...r,grupo:_grp,cotacao:cot,peso:_peso,dimsStr:_dims,cubagem:_cub,pesoAlerta:(_cub!=null&&_peso>_cub),cteNumFech:r.cteNumFech||'',cubFech:_cubF,cubDiverg:_cdiv,cubDivergTxt:_cdivTxt,approx:cq.approx||false,canal:cq.canal||'',cep:cq.cep||'',cidade:cq.cidade||'',uf:cq.uf||'',pedidoData:cq.pedidoData||'',quoteId:cq.quote_id||'',cotVsCte:(cot==null)?null:(cot-r.cte),sku:skuStr,produto:prodStr,tms:tms,tmsOrig:tmsOrig,tmsAmbig:tmsAmbig,lucro:(tms-r.cte)};
+    const _grp=carrierGroup(r.carrier); const _vols=cq.vols||[]; const _peso=_vols.reduce(function(x,v){return x+(v.p||0);},0); const _v0=_vols[0]; const _dims=_v0?('L:'+_v0.w+' A:'+_v0.h+' P:'+_v0.l):''; const _fat=cubFactor(_grp); const _cub=_vols.length?_vols.reduce(function(x,v){return x+((v.w/100)*(v.h/100)*(v.l/100)*_fat);},0):null; const _cubF=(r.cubFech!=null)?r.cubFech:null; const _cdiv=(_cubF!=null&&_cub!=null&&_cubF>_cub*1.05); const _cdivTxt=_cdiv?(_cubF.toLocaleString('pt-BR',{maximumFractionDigits:2})+' (+'+(_cubF-_cub).toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg)'):''; return {...r,grupo:_grp,cotacao:cot,peso:_peso,dimsStr:_dims,cubagem:_cub,pesoAlerta:(_cub!=null&&_peso>_cub),cteNumFech:r.cteNumFech||'',cubFech:_cubF,cubDiverg:_cdiv,cubDivergTxt:_cdivTxt,approx:cq.approx||false,canal:_canal,cep:cq.cep||'',cidade:cq.cidade||'',uf:cq.uf||'',pedidoData:cq.pedidoData||'',quoteId:cq.quote_id||'',cotVsCte:(cot==null)?null:(cot-r.cte),sku:skuStr,produto:prodStr,tms:tms,tmsOrig:tmsOrig,tmsAmbig:tmsAmbig,lucro:(tms-r.cte)};
   });
 }
 function filtered(){
