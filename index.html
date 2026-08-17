@@ -138,6 +138,7 @@
     <div class="toolbar">
       <button class="primary" id="btnComplete" onclick="completarMes()">🔄 Atualizar mês do filtro (novos + campos vazios)</button>
       <button id="btnForce" onclick="forceRecalc()">🔄 Recalcular cotações (filtro)</button>
+      <button id="btnKondado" onclick="completarPedidosKondado()">🧾 Completar pedidos/SKU (Kondado)</button>
       <button id="btnStop" onclick="STOP=true" disabled>■ Parar</button>
       <div class="spacer"></div>
       <button onclick="loadCloud(true)">☁ Carregar da nuvem</button>
@@ -1132,6 +1133,7 @@ async function completarMes(){
       await new Promise(s=>setTimeout(s,100));
     }
     store.quotes=cache;applySkuMap();store.rows=store.rows;
+    try{await completarPedidosKondado(true);}catch(e){}
     prog('Concluido. Novos pedidos: '+added.length+' - notas completadas: '+done+' (cotacoes: '+found+'). Nada preenchido foi sobrescrito.');
     render();await autoBackup();
   }catch(e){
@@ -1440,7 +1442,7 @@ function forceRecalc(){
   store.quotes=cache;
   enrichQuotes();
 }
-function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnRepair'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
+function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnRepair','btnKondado'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
 
 function backupData(){return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:store.rows,quotes:store.quotes};}
 async function ensurePerm(h,mode='readwrite'){ if(!h)return false; const o={mode}; if((await h.queryPermission(o))==='granted')return true; if((await h.requestPermission(o))==='granted')return true; return false; }
@@ -1461,6 +1463,45 @@ async function loadSkuMap(manual){
     prog('SKU/produto carregado: '+Object.keys(SKUMAP).length.toLocaleString('pt-BR')+' pedidos na base. Gravado em '+nAp+' notas (agora persiste no backup). ('+(f.size/1048576).toFixed(1)+' MB)');
     render();if(nAp)await autoBackup();
   }catch(e){ if(manual)alert('Não achei sku-map.json na pasta de backup. Mova o arquivo baixado para lá.'); }
+}
+// ===== Completar nº do pedido + SKU via Kondado (Google Sheets) para notas que vieram só com NF =====
+const KDD_ID='1d4ORz_TloSJPBq8LZMrbD7YoPZSUFONExKg1heEBFrU';
+const KDD_KEY='AIzaSyCpFaibN_ct8r2ywjIlKByvZkxok5ytqXI';
+async function kddBatch(tab,ranges){
+  const qs=ranges.map(r=>'ranges='+encodeURIComponent(tab+'!'+r)).join('&');
+  const u='https://sheets.googleapis.com/v4/spreadsheets/'+KDD_ID+'/values:batchGet?'+qs+'&key='+KDD_KEY;
+  const r=await fetch(u); if(!r.ok)throw new Error('Kondado '+r.status);
+  const j=await r.json();
+  return (j.valueRanges||[]).map(vr=>(vr.values||[]).map(x=>x[0]!=null?String(x[0]):''));
+}
+async function completarPedidosKondado(chained){
+  const rows=store.rows;
+  if(!rows.length){ if(!chained)alert('Puxe os dados primeiro.'); return; }
+  const alvo=rows.filter(r=>r.nf && (!r.order || String(r.order).trim()===''));
+  if(!alvo.length){ if(!chained)prog('Todas as notas já têm número de pedido.'); return; }
+  if(!chained){STOP=false;toggleBusy(true);}
+  try{
+    prog('Kondado: lendo notas (NF → pedido) para '+alvo.length+' notas sem pedido...');
+    const nres=await kddBatch('tinyerp_notas_detalhes',['C2:C','AN2:AN']);
+    const nfCol=nres[0]||[], obsCol=nres[1]||[];
+    const reE=/Ref\.?\s*ao\s*pedido\s*n[uú]mero[:\s]*([^\s\r\n]+)/i;
+    const reT=/N[oº]\s*Pedido[:\s]*([0-9]+)/i;
+    const nfMap={};
+    for(let i=0;i<nfCol.length;i++){ const k=normNF(nfCol[i]); if(!k)continue; const o=obsCol[i]||''; const me=o.match(reE),mt=o.match(reT); nfMap[k]={ecom:me?me[1].trim():'',tiny:mt?mt[1].trim():''}; }
+    prog('Kondado: lendo pedidos (pedido → SKU/produto)...');
+    const pres=await kddBatch('tinyerp_pedidos_detalhes_itens',['A2:A','B2:B','C2:C','H2:H','I2:I']);
+    const A=pres[0]||[],B=pres[1]||[],C=pres[2]||[],H=pres[3]||[],I=pres[4]||[];
+    const byId={};
+    for(let i=0;i<A.length;i++){ const id=String(A[i]||'').trim(); if(!id)continue; const e=byId[id]||(byId[id]={skus:[],prods:[],ecom:'',tiny:''}); if(B[i]&&e.skus.indexOf(B[i])<0)e.skus.push(B[i]); if(C[i]&&e.prods.indexOf(C[i])<0)e.prods.push(C[i]); if(I[i])e.ecom=String(I[i]).trim(); if(H[i])e.tiny=String(H[i]).trim(); }
+    const byE={},byT={};
+    for(const id in byId){ const e=byId[id]; if(e.ecom)byE[e.ecom]=id; if(e.tiny)byT[e.tiny]=id; }
+    let fixed=0,semRef=0,semPed=0;
+    for(const r of alvo){ const info=nfMap[normNF(r.nf)]; if(!info||(!info.ecom&&!info.tiny)){semRef++;continue;} const id=(info.ecom&&byE[info.ecom])||(info.tiny&&byT[info.tiny])||''; if(!id){semPed++;continue;} r.order=id; const e=byId[id]; if(e){ if((!r.sku||r.sku==='')&&e.skus.length)r.sku=e.skus.join(', '); if((!r.prod||r.prod==='')&&e.prods.length)r.prod=e.prods.join(' | '); } fixed++; }
+    store.rows=store.rows; applySkuMap();
+    prog('Kondado: '+fixed+' pedidos preenchidos (de '+alvo.length+' sem pedido). Sem ref. no AN: '+semRef+'. Ref. sem pedido na base: '+semPed+'.');
+    if(!chained){ render(); await autoBackup(); }
+  }catch(e){ prog('Erro Kondado: '+e.message); }
+  if(!chained){ toggleBusy(false); setBar(0); }
 }
 async function saveBackup(manual){
   const data=JSON.stringify(backupData());
