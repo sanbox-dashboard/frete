@@ -1388,9 +1388,8 @@ async function findHistoricalQuote(d){
   if(!pool.length) return {cotacao:null};
   pool.sort((a,b)=>(a.wdiff-b.wdiff)||(a.dt-b.dt));
   const chosen=pool[0];
-  let cot=chosen.cot; // fallback: custo do provider (GraphQL) se o REST falhar
-  const fc=await quoteFinalCost(chosen.qid); if(fc!=null)cot=fc; // frete EXIBIDO (cobrado do cliente)
-  return {cotacao:cot,quote_id:chosen.qid,back:chosen.back,approx:!strict.length};
+  // Cotação = CUSTO DE ENVIO (menor provider_shipping_cost = campo `cost` do GraphQL).
+  return {cotacao:chosen.cot,quote_id:chosen.qid,back:chosen.back,approx:!strict.length};
 }
 async function enrichQuotes(onlyMissing){
   const rows=store.rows;if(!rows.length){alert('Puxe os dados primeiro.');return;}
@@ -1450,13 +1449,15 @@ async function pullCanais(){
 }
 // Frete do pedido (valor_frete = coluna BH da aba tinyerp_pedidos_detalhes), casado por id_pedido / pedido_numero / ecommerce.
 async function fetchFreteKondadoMap(){
-  // 1) por PEDIDO: valor_frete (col BH) casado por id_pedido/pedido_numero/ecommerce
-  const pres=await kddBatch('tinyerp_pedidos_detalhes',['A2:A','BH2:BH','BI2:BI','BJ2:BJ']);
-  const A=pres[0]||[],F=pres[1]||[],PN=pres[2]||[],EC=pres[3]||[];
+  // 1) por PEDIDO: valor_frete (col BH) casado principalmente pelo nº do pedido do canal/marketplace
+  //    AB=ecommerce_numeropedidocanalvenda, AC=ecommerce_numeropedidoecommerce (é o que casa com r.order da Intelipost);
+  //    A=id_pedido, BI=pedido_numero, BJ=pedido_numero_ecommerce como chaves extras.
+  const pres=await kddBatch('tinyerp_pedidos_detalhes',['BH2:BH','AB2:AB','AC2:AC','A2:A','BI2:BI','BJ2:BJ']);
+  const F=pres[0]||[],AB=pres[1]||[],AC=pres[2]||[],A=pres[3]||[],PN=pres[4]||[],EC=pres[5]||[];
   const byOrder={};
-  for(let i=0;i<A.length;i++){
+  for(let i=0;i<F.length;i++){
     const v=brlNum(F[i]); if(v==null)continue;
-    [A[i],PN[i],EC[i]].forEach(k=>{const s=String(k||'').trim(); if(s&&!(s in byOrder))byOrder[s]=v;});
+    [AB[i],AC[i],A[i],PN[i],EC[i]].forEach(k=>{const s=String(k||'').trim(); if(s&&!(s in byOrder))byOrder[s]=v;});
   }
   // 2) fallback por NF: valorfrete da nota (col L) da aba tinyerp_notas_detalhes (col C = numero)
   const nres=await kddBatch('tinyerp_notas_detalhes',['C2:C','L2:L']);
