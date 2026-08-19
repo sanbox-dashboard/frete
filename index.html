@@ -1534,28 +1534,49 @@ async function kddBatch(tab,ranges){
 async function completarPedidosKondado(chained){
   const rows=store.rows;
   if(!rows.length){ if(!chained)alert('Puxe os dados primeiro.'); return; }
-  const alvo=rows.filter(r=>r.nf && (!r.order || String(r.order).trim()===''));
-  if(!alvo.length){ if(!chained)prog('Todas as notas já têm número de pedido.'); return; }
+  const fset=new Set(filtered().map(r=>r.nf));
+  const falta=r=>(!r.order||String(r.order).trim()==='')||(!r.sku||String(r.sku).trim()==='');
+  const alvo=rows.filter(r=>r.nf&&fset.has(r.nf)&&falta(r));
+  if(!alvo.length){ if(!chained)prog('Nada a completar no filtro — todas as notas já têm pedido e SKU.'); return; }
   if(!chained){STOP=false;toggleBusy(true);}
   try{
-    prog('Kondado: lendo notas (NF → pedido) para '+alvo.length+' notas sem pedido...');
-    const nres=await kddBatch('tinyerp_notas_detalhes',['C2:C','AN2:AN']);
-    const nfCol=nres[0]||[], obsCol=nres[1]||[];
-    const reE=/Ref\.?\s*ao\s*pedido\s*n[uú]mero[:\s]*([^\s\r\n]+)/i;
-    const reT=/N[oº]\s*Pedido[:\s]*([0-9]+)/i;
-    const nfMap={};
-    for(let i=0;i<nfCol.length;i++){ const k=normNF(nfCol[i]); if(!k)continue; const o=obsCol[i]||''; const me=o.match(reE),mt=o.match(reT); nfMap[k]={ecom:me?me[1].trim():'',tiny:mt?mt[1].trim():''}; }
-    prog('Kondado: lendo pedidos (pedido → SKU/produto)...');
+    prog('Kondado: lendo pedidos (nº do pedido → id → SKU/produto) para '+alvo.length+' notas do filtro...');
+    // 1) detalhes: nº do pedido (AB=canalvenda, AC=ecommerce, A=id, BI=pedido_numero, BJ) -> id_pedido
+    const dres=await kddBatch('tinyerp_pedidos_detalhes',['A2:A','AB2:AB','AC2:AC','BI2:BI','BJ2:BJ']);
+    const DA=dres[0]||[],AB=dres[1]||[],AC=dres[2]||[],DBI=dres[3]||[],DBJ=dres[4]||[];
+    const ord2id={};
+    for(let i=0;i<DA.length;i++){ const id=String(DA[i]||'').trim(); if(!id)continue; [AB[i],AC[i],DBI[i],DBJ[i],id].forEach(k=>{const s=String(k||'').trim(); if(s&&!(s in ord2id))ord2id[s]=id;}); }
+    // 2) itens: id_pedido -> {skus,prods}; e ecommerce(I)/pedido_numero(H) -> id
     const pres=await kddBatch('tinyerp_pedidos_detalhes_itens',['A2:A','B2:B','C2:C','H2:H','I2:I']);
     const A=pres[0]||[],B=pres[1]||[],C=pres[2]||[],H=pres[3]||[],I=pres[4]||[];
-    const byId={};
-    for(let i=0;i<A.length;i++){ const id=String(A[i]||'').trim(); if(!id)continue; const e=byId[id]||(byId[id]={skus:[],prods:[],ecom:'',tiny:''}); if(B[i]&&e.skus.indexOf(B[i])<0)e.skus.push(B[i]); if(C[i]&&e.prods.indexOf(C[i])<0)e.prods.push(C[i]); if(I[i])e.ecom=String(I[i]).trim(); if(H[i])e.tiny=String(H[i]).trim(); }
-    const byE={},byT={};
-    for(const id in byId){ const e=byId[id]; if(e.ecom)byE[e.ecom]=id; if(e.tiny)byT[e.tiny]=id; }
-    let fixed=0,semRef=0,semPed=0;
-    for(const r of alvo){ const info=nfMap[normNF(r.nf)]; if(!info||(!info.ecom&&!info.tiny)){semRef++;continue;} const id=(info.ecom&&byE[info.ecom])||(info.tiny&&byT[info.tiny])||''; if(!id){semPed++;continue;} r.order=id; const e=byId[id]; if(e){ if((!r.sku||r.sku==='')&&e.skus.length)r.sku=e.skus.join(', '); if((!r.prod||r.prod==='')&&e.prods.length)r.prod=e.prods.join(' | '); } fixed++; }
+    const byId={},byE={},byT={};
+    for(let i=0;i<A.length;i++){ const id=String(A[i]||'').trim(); if(!id)continue; const e=byId[id]||(byId[id]={skus:[],prods:[]}); if(B[i]&&e.skus.indexOf(B[i])<0)e.skus.push(B[i]); if(C[i]&&e.prods.indexOf(C[i])<0)e.prods.push(C[i]); const ec=String(I[i]||'').trim(),ti=String(H[i]||'').trim(); if(ec&&!(ec in byE))byE[ec]=id; if(ti&&!(ti in byT))byT[ti]=id; }
+    // 3) notas (só p/ notas SEM pedido): NF -> ref no campo observações (AN)
+    const semOrder=alvo.filter(r=>!r.order||String(r.order).trim()==='');
+    let nfMap={};
+    if(semOrder.length){
+      const nres=await kddBatch('tinyerp_notas_detalhes',['C2:C','AN2:AN']);
+      const nfCol=nres[0]||[],obsCol=nres[1]||[];
+      const reE=/Ref\.?\s*ao\s*pedido\s*n[uú]mero[:\s]*([^\s\r\n]+)/i, reT=/N[oº]\s*Pedido[:\s]*([0-9]+)/i;
+      for(let i=0;i<nfCol.length;i++){ const k=normNF(nfCol[i]); if(!k)continue; const o=obsCol[i]||''; const me=o.match(reE),mt=o.match(reT); if(me||mt)nfMap[k]={ecom:me?me[1].trim():'',tiny:mt?mt[1].trim():''}; }
+    }
+    const resolveId=r=>{
+      const o=String(r.order||'').trim();
+      if(o) return ord2id[o]||((o in byId)?o:'')||byE[o]||byT[o]||'';
+      const info=nfMap[normNF(r.nf)];
+      if(info){ const e=info.ecom,t=info.tiny; return (e&&(ord2id[e]||byE[e]))||(t&&(ord2id[t]||byT[t]))||''; }
+      return '';
+    };
+    let pedUpd=0,skuUpd=0,sem=0;
+    for(const r of alvo){
+      const id=resolveId(r);
+      if(!id){sem++;continue;}
+      if(!r.order||String(r.order).trim()===''){ r.order=id; pedUpd++; }
+      const e=byId[id];
+      if(e){ if((!r.sku||String(r.sku).trim()==='')&&e.skus.length){r.sku=e.skus.join(', ');skuUpd++;} if((!r.prod||String(r.prod).trim()==='')&&e.prods.length)r.prod=e.prods.join(' | '); }
+    }
     store.rows=store.rows; applySkuMap();
-    prog('Kondado: '+fixed+' pedidos preenchidos (de '+alvo.length+' sem pedido). Sem ref. no AN: '+semRef+'. Ref. sem pedido na base: '+semPed+'.');
+    prog('Kondado: '+skuUpd+' SKUs e '+pedUpd+' nºs de pedido preenchidos (de '+alvo.length+' no filtro). '+sem+' sem correspondência no Kondado.');
     if(!chained){ render(); await autoBackup(); }
   }catch(e){ prog('Erro Kondado: '+e.message); }
   if(!chained){ toggleBusy(false); setBar(0); }
