@@ -138,6 +138,7 @@
     <div class="toolbar">
       <button class="primary" id="btnComplete" onclick="completarMes()">🔄 Atualizar mês do filtro (novos + campos vazios)</button>
       <button id="btnForce" onclick="forceRecalc()">🔄 Recalcular cotações (filtro)</button>
+      <button id="btnFrete" onclick="corrigirFreteExibido()">💰 Puxar frete do pedido (Kondado)</button>
       <button id="btnKondado" onclick="completarPedidosKondado()">🧾 Completar pedidos/SKU (Kondado)</button>
       <button id="btnStop" onclick="STOP=true" disabled>■ Parar</button>
       <div class="spacer"></div>
@@ -1122,7 +1123,7 @@ async function completarMes(){
           if(isBlank(e.uf)) e.uf=ec.shipping_state_code||'';
           if(isBlank(e.pedidoData)) e.pedidoData=d.created_iso||d.created||'';
           if(d.shipment_order_volume_array&&d.shipment_order_volume_array.length){e.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
-          if(hasTok && (e.cotacao===undefined||e.cotacao===null)){ try{ const hq=await findHistoricalQuote(d); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
+          // Cotação NÃO vem mais da Intelipost — é preenchida pelo frete do pedido (Kondado) via corrigirFreteExibido().
         }
         cache[r.nf]=e;
       }catch(err){
@@ -1134,7 +1135,8 @@ async function completarMes(){
     }
     store.quotes=cache;applySkuMap();store.rows=store.rows;
     try{await completarPedidosKondado(true);}catch(e){}
-    prog('Concluido. Novos pedidos: '+added.length+' - notas completadas: '+done+' (cotacoes: '+found+'). Nada preenchido foi sobrescrito.');
+    try{await corrigirFreteExibido(true);}catch(e){}
+    prog('Concluido. Novos pedidos: '+added.length+' - notas completadas: '+done+'. Frete do pedido e SKU vindos do Kondado. Nada preenchido foi sobrescrito.');
     render();await autoBackup();
   }catch(e){
     prog('Erro: '+e.message);
@@ -1332,6 +1334,17 @@ async function fetchOrder(nf){
   if(!r.ok) return null;
   const j=await r.json();return (j.content&&j.content[0])||null;
 }
+// Frete EXIBIDO (final_shipping_cost = o que é cobrado do cliente) da cotação, via REST c/ api-key (não usa token de sessão).
+async function quoteFinalCost(qid){
+  if(!qid) return null;
+  try{
+    const r=await fetch(`${API}/quote/${encodeURIComponent(qid)}`,{headers:{'api-key':store.apikey,Accept:'application/json'}});
+    if(!r.ok) return null;
+    const j=await r.json(); const opts=(j.content&&j.content.delivery_options)||[];
+    const costs=opts.map(o=>o.final_shipping_cost).filter(c=>c>0);
+    return costs.length?Math.min.apply(null,costs):null;
+  }catch(e){ return null; }
+}
 function quotePayload(d){
   const vols=(d.shipment_order_volume_array||[]).map(v=>({weight:v.weight||1,volume_type:'BOX',cost_of_goods:(v.shipment_order_volume_invoice&&v.shipment_order_volume_invoice.invoice_products_value)||d.customer_shipping_costs||1,width:v.width||10,height:v.height||10,length:v.length||10}));
   const dest=(d.end_customer&&d.end_customer.shipping_zip_code)||d.destination_zip_code;
@@ -1374,7 +1387,10 @@ async function findHistoricalQuote(d){
   const pool=strict.length?strict:all.filter(c=>c.wdiff<=Math.max(10,w*0.25)); // fallback: peso próximo (±25%)
   if(!pool.length) return {cotacao:null};
   pool.sort((a,b)=>(a.wdiff-b.wdiff)||(a.dt-b.dt));
-  return {cotacao:pool[0].cot,quote_id:pool[0].qid,back:pool[0].back,approx:!strict.length};
+  const chosen=pool[0];
+  let cot=chosen.cot; // fallback: custo do provider (GraphQL) se o REST falhar
+  const fc=await quoteFinalCost(chosen.qid); if(fc!=null)cot=fc; // frete EXIBIDO (cobrado do cliente)
+  return {cotacao:cot,quote_id:chosen.qid,back:chosen.back,approx:!strict.length};
 }
 async function enrichQuotes(onlyMissing){
   const rows=store.rows;if(!rows.length){alert('Puxe os dados primeiro.');return;}
@@ -1397,7 +1413,7 @@ async function enrichQuotes(onlyMissing){
         const ec=d.end_customer||{};
         entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; entry.cidade=ec.shipping_city||''; entry.uf=ec.shipping_state_code||''; entry.pedidoData=d.created_iso||d.created||''; if(d.shipment_order_volume_array&&d.shipment_order_volume_array.length){entry.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
         cache[r.nf]=entry;
-        if(hasTok){ try{ const hq=await findHistoricalQuote(d); entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
+        // Cotação vem do frete do pedido (Kondado), não da Intelipost — ver corrigirFreteExibido().
       }else{ entry.canal=entry.canal||'(sem dados)'; if(hasTok){entry.cotacao=null;entry.v='hist';} }
       cache[r.nf]=entry;
     }catch(e){
@@ -1432,6 +1448,42 @@ async function pullCanais(){
   store.rows=store.rows;store.quotes=cache;prog(`Canais concluídos (${done} notas).`);
   toggleBusy(false);setBar(0);render();await autoBackup();
 }
+// Frete do pedido (valor_frete = coluna BH da aba tinyerp_pedidos_detalhes), casado por id_pedido / pedido_numero / ecommerce.
+async function fetchFreteKondadoMap(){
+  const pres=await kddBatch('tinyerp_pedidos_detalhes',['A2:A','BH2:BH','BI2:BI','BJ2:BJ']);
+  const A=pres[0]||[],F=pres[1]||[],PN=pres[2]||[],EC=pres[3]||[];
+  const map={};
+  for(let i=0;i<A.length;i++){
+    const v=brlNum(F[i]); if(v==null)continue;
+    const put=k=>{const s=String(k||'').trim(); if(s&&!(s in map))map[s]=v;};
+    put(A[i]); put(PN[i]); put(EC[i]);
+  }
+  return map;
+}
+// Preenche a COTAÇÃO com o frete do pedido vindo do Kondado (valor_frete). Amazon vem 0 e é substituído pelo estado no enriched(). Não usa token de sessão.
+async function corrigirFreteExibido(chained){
+  const rows=store.rows; if(!rows.length){ if(!chained)alert('Puxe os dados primeiro.'); return; }
+  const cache=store.quotes;
+  const fset=new Set(filtered().map(r=>r.nf));
+  const alvo=rows.filter(r=>r.nf&&fset.has(r.nf)&&r.order);
+  if(!alvo.length){ if(!chained)prog('Nenhuma nota com número de pedido no filtro. Rode "🧾 Completar pedidos/SKU (Kondado)" antes.'); return; }
+  if(!chained){STOP=false;toggleBusy(true);prog('Kondado: lendo frete dos pedidos (valor_frete)...');}
+  try{
+    const map=await fetchFreteKondadoMap();
+    let upd=0,semPed=0;
+    for(const r of alvo){
+      const o=String(r.order).trim();
+      if(!(o in map)){semPed++;continue;}
+      const e={...(cache[r.nf]||{})};
+      e.cotacao=map[o]; e.v='kondado'; delete e.quote_id; delete e.approx;
+      cache[r.nf]=e; upd++;
+    }
+    store.quotes=cache;
+    prog('Frete do pedido (Kondado) preenchido em '+upd+' notas'+(semPed?(' — '+semPed+' sem pedido correspondente na base'):'')+'.');
+    if(!chained){ render(); await autoBackup(); }
+  }catch(e){ prog('Erro Kondado (frete): '+e.message); }
+  if(!chained){ toggleBusy(false); setBar(0); }
+}
 function forceRecalc(){
   const rows=store.rows;if(!rows.length){alert('Puxe os dados primeiro.');return;}
   const fset=new Set(filtered().map(r=>r.nf));
@@ -1442,7 +1494,7 @@ function forceRecalc(){
   store.quotes=cache;
   enrichQuotes();
 }
-function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnRepair','btnKondado'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
+function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnFrete','btnRepair','btnKondado'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
 
 function backupData(){return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:store.rows,quotes:store.quotes};}
 async function ensurePerm(h,mode='readwrite'){ if(!h)return false; const o={mode}; if((await h.queryPermission(o))==='granted')return true; if((await h.requestPermission(o))==='granted')return true; return false; }
@@ -1600,14 +1652,14 @@ function renderCubFactors(){
 function enriched(){
   const q=store.quotes;
   return store.rows.map(r=>{
-    const cq=q[r.nf]||{};const cot=(cq.cotacao===undefined)?null:cq.cotacao;
+    const cq=q[r.nf]||{};let cot=(cq.cotacao===undefined)?null:cq.cotacao;
     const skm=(SKUMAP&&r.order&&SKUMAP[String(r.order)])||null;
     const skuStr=r.sku||(skm?skm.sku:'')||'';
     const prodStr=r.prod||(skm?skm.prod:'')||'';
     let tms=r.tms,tmsOrig=null,tmsAmbig=false;
     const _canal=mapCanal(cq.canal);
     const ov=freteOverride(_canal,cq.uf,cq.pedidoData,skuStr);
-    if(ov){ if(ov.ambiguous)tmsAmbig=true; else {tmsOrig=r.tms;tms=ov.val;} }
+    if(ov){ if(ov.ambiguous)tmsAmbig=true; else {tmsOrig=r.tms;tms=ov.val;cot=ov.val;} }
     const _grp=carrierGroup(r.carrier); const _vols=cq.vols||[]; const _peso=_vols.reduce(function(x,v){return x+(v.p||0);},0); const _v0=_vols[0]; const _dims=_v0?('L:'+_v0.w+' A:'+_v0.h+' P:'+_v0.l):''; const _fat=cubFactor(_grp); const _cub=_vols.length?_vols.reduce(function(x,v){return x+((v.w/100)*(v.h/100)*(v.l/100)*_fat);},0):null; const _cubF=(r.cubFech!=null)?r.cubFech:null; const _cdiv=(_cubF!=null&&_cub!=null&&_cubF>_cub*1.05); const _cdivTxt=_cdiv?(_cubF.toLocaleString('pt-BR',{maximumFractionDigits:2})+' (+'+(_cubF-_cub).toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg)'):''; return {...r,grupo:_grp,cotacao:cot,peso:_peso,dimsStr:_dims,cubagem:_cub,pesoAlerta:(_cub!=null&&_peso>_cub),cteNumFech:r.cteNumFech||'',cubFech:_cubF,cubDiverg:_cdiv,cubDivergTxt:_cdivTxt,approx:cq.approx||false,canal:_canal,cep:cq.cep||'',cidade:cq.cidade||'',uf:cq.uf||'',pedidoData:cq.pedidoData||'',quoteId:cq.quote_id||'',cotVsCte:(cot==null)?null:(cot-r.cte),sku:skuStr,produto:prodStr,tms:tms,tmsOrig:tmsOrig,tmsAmbig:tmsAmbig,lucro:(tms-r.cte)};
   });
 }
