@@ -937,6 +937,21 @@ const YEAR=2026;
 let STOP=false, chart=null, dirHandle=null, SKUMAP=null;
 // Substituição de "Cobrado do cliente" p/ pedidos Amazon por SKU+estado+período (aba Planilha1 de "Todos fretes.xlsx")
 const FRETE_RULES=[{s:"TI1514",sp:217,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1562",sp:210,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1558",sp:154,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1628",sp:266,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1565",sp:89,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1627",sp:276,mg:null,es:null,rj:null,i:"2026-04-06",f:"2026-05-31"},{s:"TI1690",sp:260,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1633",sp:226,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1571",sp:164,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1524",sp:154,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1580",sp:176,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1526",sp:128,mg:null,es:null,rj:null,i:"2026-04-30",f:"2026-05-31"},{s:"TI1676",sp:89,mg:null,es:null,rj:null,i:"2026-05-22",f:"2026-05-31"},{s:"TI1558",sp:154,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1565",sp:89,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1571",sp:164,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1524",sp:154,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1602",sp:169,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1690",sp:260,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1514",sp:217,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1580",sp:176,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1633",sp:226,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1627",sp:276,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1562",sp:210,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1676",sp:89,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1526",sp:128,mg:null,es:null,rj:null,i:"2026-06-01",f:"2026-06-25"},{s:"TI1558",sp:195,mg:null,es:null,rj:null,i:"2026-06-26",f:"2026-07-10"},{s:"TI1565",sp:150,mg:null,es:null,rj:null,i:"2026-06-26",f:"2026-07-10"},{s:"TI1571",sp:210,mg:143,es:281,rj:178,i:"2026-06-26",f:"2026-07-10"},{s:"TI1524",sp:190,mg:151,es:30,rj:181,i:"2026-06-26",f:"2026-07-10"},{s:"TI1602",sp:270,mg:170,es:271,rj:204,i:"2026-06-26",f:"2026-07-10"},{s:"TI1690",sp:171,mg:161,es:277,rj:233,i:"2026-06-26",f:"2026-07-10"},{s:"TI1514",sp:270,mg:262,es:289,rj:230,i:"2026-06-26",f:"2026-07-10"},{s:"TI1580",sp:195,mg:137,es:247,rj:180,i:"2026-06-26",f:"2026-07-10"},{s:"TI1633",sp:253,mg:180,es:266,rj:268,i:"2026-06-26",f:"2026-07-10"},{s:"TI1627",sp:282,mg:30,es:30,rj:310,i:"2026-06-26",f:"2026-07-10"},{s:"TI1562",sp:270,mg:198,es:285,rj:230,i:"2026-06-26",f:"2026-07-10"},{s:"TI1526",sp:190,mg:30,es:30,rj:180,i:"2026-06-26",f:"2026-07-10"}];
+// Regras Amazon AO VIVO da planilha pública "Regras frete fixo Amazon" (fallback = FRETE_RULES acima se a planilha não carregar)
+const AMZ_SHEET_ID='1JW5DeVCJKEYQzGOcdHDplFMvjr_dI3JdtKCmUoFWj6g', AMZ_SHEET_TAB='Regras frete fixo Amazon';
+let AMZ_RULES=null;
+function amzNum(v){ if(v==null)return null; let s=String(v).replace(/[^\d.,-]/g,''); if(s==='')return null; if(s.indexOf(',')>=0)s=s.replace(/\./g,'').replace(',','.'); const n=parseFloat(s); return isNaN(n)?null:n; }
+function amzDate(v){ const s=String(v||'').trim(); let m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if(m)return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'); m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m)return s.slice(0,10); return ''; }
+async function loadAmazonRules(){
+  try{
+    const u='https://sheets.googleapis.com/v4/spreadsheets/'+AMZ_SHEET_ID+'/values/'+encodeURIComponent(AMZ_SHEET_TAB)+'!A2:G1000?key=AIzaSyCpFaibN_ct8r2ywjIlKByvZkxok5ytqXI';
+    const r=await fetch(u); if(!r.ok)return 0;
+    const j=await r.json(); const vals=j.values||[]; const rules=[];
+    for(const row of vals){ const s=String((row[0]||'')).trim(); if(!s)continue; const i=amzDate(row[5]),f=amzDate(row[6]); if(!i||!f)continue; rules.push({s:s,sp:amzNum(row[1]),mg:amzNum(row[2]),es:amzNum(row[3]),rj:amzNum(row[4]),i:i,f:f}); }
+    if(rules.length)AMZ_RULES=rules;
+    return rules.length;
+  }catch(e){ return 0; }
+}
 function freteOverride(canal,uf,pedidoData,skuStr){
   if(!canal||!/amazon/i.test(canal))return null;
   const col={SP:'sp',MG:'mg',ES:'es',RJ:'rj'}[(uf||'').toUpperCase()];
@@ -944,7 +959,7 @@ function freteOverride(canal,uf,pedidoData,skuStr){
   const day=(pedidoData||'').slice(0,10); if(!day)return null;
   const skus=(skuStr||'').split(',').map(s=>s.trim()).filter(Boolean); if(!skus.length)return null;
   const hits=[];
-  for(const r of FRETE_RULES){ if(skus.indexOf(r.s)<0)continue; if(r[col]==null)continue; if(day>=r.i&&day<=r.f)hits.push(r[col]); }
+  for(const r of (AMZ_RULES||FRETE_RULES)){ if(skus.indexOf(r.s)<0)continue; if(r[col]==null)continue; if(day>=r.i&&day<=r.f)hits.push(r[col]); }
   const uniq=[...new Set(hits)];
   if(uniq.length===1)return {val:uniq[0]};
   if(uniq.length>1)return {ambiguous:true};
@@ -1856,6 +1871,7 @@ async function boot(){
   if(!MEM.rows.length){ try{ await loadCloud(false); }catch(e){} }
   if(document.getElementById('apiKey'))document.getElementById('apiKey').value=store.apikey||document.getElementById('apiKey').value;
   tokenStatus();setInterval(tokenStatus,60000);
+  try{ await loadAmazonRules(); }catch(e){}
   render();
   try{ await loadFolder(); await loadSkuMap(false); }catch(e){}
   autoUpdate();
