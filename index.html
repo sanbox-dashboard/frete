@@ -250,18 +250,18 @@
     <div class="grid" style="grid-template-columns:1fr 1fr;gap:18px">
       <div>
         <div class="hint" style="margin-bottom:6px;font-weight:600">Por Estado (UF)</div>
-        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="l">UF</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th><th>%</th></tr></thead><tbody id="repUF"></tbody></table></div>
+        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="l">UF</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Lucro</th><th>% Lucro</th></tr></thead><tbody id="repUF"></tbody></table></div>
       </div>
       <div>
         <div class="hint" style="margin-bottom:6px;font-weight:600">Por Canal de vendas</div>
-        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="l">Canal</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th><th>%</th></tr></thead><tbody id="repCanal"></tbody></table></div>
+        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="l">Canal</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Lucro</th><th>% Lucro</th></tr></thead><tbody id="repCanal"></tbody></table></div>
       </div>
     </div>
     <div style="margin-top:18px">
       <div class="hint" style="margin-bottom:6px;font-weight:600">Por Transportadora × Estado</div>
       <div class="tbl-wrap" style="max-height:440px"><table><thead><tr><th class="l">Transportadora</th><th class="l">UF</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th><th>%</th><th>Lucro</th><th>% Lucro</th></tr></thead><tbody id="repCombo"></tbody></table></div>
     </div>
-    <p class="hint" style="margin-top:10px">Σ Transportadora (CT-e) = total que a transportadora cobrou. Cobrança a mais = quanto ela cobrou acima da cotação (só conta notas com cotação). Ordenado pela cobrança a mais.</p>
+    <p class="hint" style="margin-top:10px">Σ Transportadora (CT-e) = total que a transportadora cobrou. Lucro = cobrado do cliente − CT-e (% sobre o CT-e). Cobrança a mais = quanto a transportadora cobrou acima da cotação. Por Estado e Por Canal ordenados pelo lucro (menor primeiro).</p>
   </div>
 
   <p class="hint" style="text-align:center;margin:26px 0">Dados ao vivo da sua conta Intelipost (ID 22921). Cotação = valor REAL da cotação original (opção mais barata), buscada pelo CEP de destino na janela de até 4 dias antes da criação do pedido, casada pelo peso. "—" na cotação = não encontrada nessa janela. CT-e e valor do cliente são exatos do módulo de conciliação.</p>
@@ -1770,8 +1770,8 @@ function render(){
 }
 function reportBy(rows,key){
   const g={};
-  for(const r of rows){const k=(r[key]||'(sem)');if(!g[k])g[k]={n:0,cte:0,over:0,cot:0};g[k].n++;g[k].cte+=r.cte||0;if(r.cotacao!=null){g[k].cot++;if(r.cotVsCte<0)g[k].over+=(-r.cotVsCte);}}
-  return Object.entries(g).map(([k,v])=>({grupo:k,notas:v.n,cte:v.cte,over:v.over,cot:v.cot})).sort((a,b)=>b.over-a.over);
+  for(const r of rows){const k=(r[key]||'(sem)');if(!g[k])g[k]={n:0,cte:0,over:0,cot:0,lucro:0};g[k].n++;g[k].cte+=r.cte||0;g[k].lucro+=r.lucro||0;if(r.cotacao!=null){g[k].cot++;if(r.cotVsCte<0)g[k].over+=(-r.cotVsCte);}}
+  return Object.entries(g).map(([k,v])=>({grupo:k,notas:v.n,cte:v.cte,over:v.over,cot:v.cot,lucro:v.lucro})).sort((a,b)=>a.lucro-b.lucro);
 }
 function reportCombo(rows){
   const g={};
@@ -1782,7 +1782,7 @@ function reportCombo(rows){
 }
 function pctTxt(over,cte){ return (cte>0)?((over/cte*100).toFixed(1).replace('.',',')+'%'):'—'; }
 function renderReport(rows){
-  const fill=(id,data)=>{const el=document.getElementById(id);if(!el)return;el.innerHTML=data.map(d=>`<tr><td class="l">${d.grupo}</td><td>${d.notas}</td><td>${brl(d.cte)}</td><td class="${d.over>0?'neg':''}">${brl(d.over)}</td><td class="${d.over>0?'neg':''}">${pctTxt(d.over,d.cte)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted" style="text-align:center">Sem dados no filtro.</td></tr>';};
+  const fill=(id,data)=>{const el=document.getElementById(id);if(!el)return;el.innerHTML=data.map(d=>`<tr><td class="l">${d.grupo}</td><td>${d.notas}</td><td>${brl(d.cte)}</td><td class="${d.lucro<0?'neg':'pos'}">${brl(d.lucro)}</td><td class="${d.lucro<0?'neg':'pos'}">${pctTxt(d.lucro,d.cte)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted" style="text-align:center">Sem dados no filtro.</td></tr>';};
   fill('repUF',reportBy(rows,'uf'));
   fill('repCanal',reportBy(rows,'canal'));
   const cel=document.getElementById('repCombo');
@@ -1791,7 +1791,7 @@ function renderReport(rows){
 function exportReport(){
   const rows=filtered();
   const pctNum=(over,cte)=>cte>0?+(over/cte*100).toFixed(1):0;
-  const map=d=>({Grupo:d.grupo,Notas:d.notas,Soma_Transportadora_CTe:d.cte,Cobranca_a_mais:d.over,Pct:pctNum(d.over,d.cte),Notas_com_cotacao:d.cot});
+  const map=d=>({Grupo:d.grupo,Notas:d.notas,Soma_Transportadora_CTe:d.cte,Lucro:d.lucro,Pct_Lucro:pctNum(d.lucro,d.cte),Notas_com_cotacao:d.cot});
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportBy(rows,'uf').map(map)),'Por Estado');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportBy(rows,'canal').map(map)),'Por Canal');
