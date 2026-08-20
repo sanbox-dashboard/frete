@@ -138,6 +138,7 @@
     <div class="toolbar">
       <button class="primary" id="btnComplete" onclick="completarMes()">🔄 Atualizar mês do filtro (novos + campos vazios)</button>
       <button id="btnForce" onclick="forceRecalc()">🔄 Recalcular cotações (filtro)</button>
+      <button id="btnCte" onclick="atualizarCTe()">🚚 Atualizar CT-e (filtro)</button>
       <button id="btnFrete" onclick="corrigirFreteExibido()">💰 Puxar cobrado do cliente (Kondado)</button>
       <button id="btnKondado" onclick="completarPedidosKondado()">🧾 Completar pedidos/SKU (Kondado)</button>
       <button id="btnStop" onclick="STOP=true" disabled>■ Parar</button>
@@ -170,8 +171,11 @@
       <div><label>Transportadora (CT-e)</label><select id="fCarrier" onchange="render()"></select></div>
       <div><label>Canal de vendas</label><select id="fCanal" onchange="render()"></select></div>
       <div><label>Estado (UF)</label><select id="fUF" onchange="render()"></select></div>
+      <div><label>Data pedido — de</label><input type="date" id="fDateFrom" onchange="render()"></div>
+      <div><label>até</label><input type="date" id="fDateTo" onchange="render()"></div>
       <div><label>Buscar (NF / pedido / cidade)</label><input id="search" placeholder="digite..." oninput="render()"></div>
     </div>
+    <div class="row" style="margin-top:6px"><span class="hint">O filtro de datas usa a <b>data do pedido</b>. Pode combinar com o mês ou deixar o mês em “Todos”. <a href="#" onclick="document.getElementById('fDateFrom').value='';document.getElementById('fDateTo').value='';render();return false;">limpar datas</a></span></div>
     <div class="row" style="margin-top:12px">
       <label class="hint"><input type="checkbox" id="onlyOver" style="width:auto" onchange="render()"> só onde a transportadora cobrou a mais</label>
       <label class="hint"><input type="checkbox" id="onlyLoss" style="width:auto" onchange="render()"> só prejuízo</label>
@@ -1514,7 +1518,40 @@ function forceRecalc(){
   store.quotes=cache;
   enrichQuotes();
 }
-function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnFrete','btnRepair','btnKondado'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
+// Re-puxa da Intelipost o "transportadora cobrou" (CT-e) das notas do filtro e sobrescreve r.cte. Preserva fechamento/XML (conciliação oficial das transportadoras).
+async function atualizarCTe(){
+  if(!tokenStatus()){alert('Configure o token primeiro (passo 1).');return;}
+  const frows=filtered(); if(!frows.length){prog('Nada no filtro para atualizar.');return;}
+  const fset=new Set(frows.map(r=>r.nf));
+  const months=[...new Set(frows.map(r=>r.month).filter(Boolean))].sort((a,b)=>a-b);
+  STOP=false;toggleBusy(true);
+  try{
+    const byNF={}; store.rows.forEach(r=>{if(r.nf)byNF[r.nf]=r;});
+    let upd=0,scan=0,prot=0;
+    for(const m of months){
+      if(STOP)break;
+      const items=await pullMonth(m);
+      for(const it of items){
+        if(!fset.has(it.nf))continue;
+        const r=byNF[it.nf]; if(!r)continue; scan++;
+        if(r.cteFonte==='fechamento'||r.cteFonte==='xml'){prot++;continue;} // preserva conciliação
+        const novo=it.cte||0;
+        if(novo!==(r.cte||0)){r.cte=novo;upd++;}
+        if(it.cteNum)r.cteNum=it.cteNum; if(it.issue)r.issue=it.issue; if(it.carrier)r.carrier=it.carrier;
+      }
+      setBar((months.indexOf(m)+1)/months.length);
+      prog('Atualizando CT-e — '+MESES[m]+' ('+upd+' atualizadas)...');
+    }
+    store.rows=store.rows;
+    prog('CT-e atualizado: '+upd+' notas alteradas (de '+scan+' no filtro). '+prot+' de fechamento/XML preservadas.');
+    render();await autoBackup();
+  }catch(e){
+    prog('Erro: '+e.message);
+    if(/autentic|401/i.test(e.message)){const b=document.getElementById('tokBadge');b.className='badge err';b.textContent='Token expirado';}
+  }
+  toggleBusy(false);setBar(0);
+}
+function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnFrete','btnCte','btnRepair','btnKondado'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
 
 function backupData(){return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:store.rows,quotes:store.quotes};}
 async function ensurePerm(h,mode='readwrite'){ if(!h)return false; const o={mode}; if((await h.queryPermission(o))==='granted')return true; if((await h.requestPermission(o))==='granted')return true; return false; }
@@ -1714,6 +1751,9 @@ function filtered(){
   if(kf&&kf!=='all')rows=rows.filter(r=>(r.canal||'(sem canal)')===kf);
   const uf=document.getElementById('fUF').value;
   if(uf&&uf!=='all')rows=rows.filter(r=>(r.uf||'(sem)')===uf);
+  const dFrom=document.getElementById('fDateFrom'), dTo=document.getElementById('fDateTo');
+  const df=dFrom?dFrom.value:'', dt=dTo?dTo.value:'';
+  if(df||dt)rows=rows.filter(r=>{const d=(r.pedidoData||'').slice(0,10); if(!d)return false; if(df&&d<df)return false; if(dt&&d>dt)return false; return true;});
   const s=document.getElementById('search').value.trim().toLowerCase();
   if(s)rows=rows.filter(r=>(r.nf+' '+r.order+' '+r.carrier+' '+r.canal+' '+r.cidade).toLowerCase().includes(s));
   if(document.getElementById('onlyOver').checked)rows=rows.filter(r=>r.cotVsCte!=null&&r.cotVsCte<0);
