@@ -250,16 +250,16 @@
     <div class="grid" style="grid-template-columns:1fr 1fr;gap:18px">
       <div>
         <div class="hint" style="margin-bottom:6px;font-weight:600">Por Estado (UF)</div>
-        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="l">UF</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th></tr></thead><tbody id="repUF"></tbody></table></div>
+        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="l">UF</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th><th>%</th></tr></thead><tbody id="repUF"></tbody></table></div>
       </div>
       <div>
         <div class="hint" style="margin-bottom:6px;font-weight:600">Por Canal de vendas</div>
-        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="l">Canal</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th></tr></thead><tbody id="repCanal"></tbody></table></div>
+        <div class="tbl-wrap" style="max-height:360px"><table><thead><tr><th class="l">Canal</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th><th>%</th></tr></thead><tbody id="repCanal"></tbody></table></div>
       </div>
     </div>
     <div style="margin-top:18px">
-      <div class="hint" style="margin-bottom:6px;font-weight:600">Por Canal × Estado</div>
-      <div class="tbl-wrap" style="max-height:440px"><table><thead><tr><th class="l">Canal</th><th class="l">UF</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th></tr></thead><tbody id="repCombo"></tbody></table></div>
+      <div class="hint" style="margin-bottom:6px;font-weight:600">Por Transportadora × Estado</div>
+      <div class="tbl-wrap" style="max-height:440px"><table><thead><tr><th class="l">Transportadora</th><th class="l">UF</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th><th>%</th><th>Lucro</th><th>% Lucro</th></tr></thead><tbody id="repCombo"></tbody></table></div>
     </div>
     <p class="hint" style="margin-top:10px">Σ Transportadora (CT-e) = total que a transportadora cobrou. Cobrança a mais = quanto ela cobrou acima da cotação (só conta notas com cotação). Ordenado pela cobrança a mais.</p>
   </div>
@@ -1742,13 +1742,15 @@ function render(){
   const overcharge=withCot.filter(r=>r.cotVsCte<0);
   const totalOver=Math.abs(sum(overcharge,'cotVsCte'));
   const lucroTot=sum(rows,'lucro');
+  const totalCte=sum(rows,'cte');
+  const spct=v=>(totalCte>0?(v/totalCte*100).toFixed(1).replace('.',',')+'%':'—');
   const prejuizo=rows.filter(r=>r.lucro<0);
   const kpis=[
     {lbl:'Notas (no filtro)',val:rows.length,sub:withCot.length+' com cotação'},
     {lbl:'Σ Cobrado do cliente',val:brl(sum(rows,'tms'))},
     {lbl:'Σ Transportadora (CT-e)',val:brl(sum(rows,'cte'))},
-    {lbl:'Cobrança a mais da transportadora',val:brl(totalOver),cls:'bad',sub:overcharge.length+' notas acima da cotação'},
-    {lbl:'Σ Lucro (cliente − transp.)',val:brl(lucroTot),cls:lucroTot>=0?'good':'bad',sub:prejuizo.length+' notas em prejuízo'},
+    {lbl:'Cobrança a mais da transportadora',val:brl(totalOver),cls:'bad',sub:overcharge.length+' notas · '+spct(totalOver)+' do CT-e'},
+    {lbl:'Σ Lucro (cliente − transp.)',val:brl(lucroTot),cls:lucroTot>=0?'good':'bad',sub:prejuizo.length+' em prejuízo · '+spct(lucroTot)+' do CT-e'},
   ];
   document.getElementById('kpis').innerHTML=kpis.map(k=>`<div class="kpi"><div class="lbl">${k.lbl}</div><div class="val ${k.cls||''}">${k.val}</div><div class="sub">${k.sub||''}</div></div>`).join('');
   rows.sort((a,b)=>{let x=a[sortK],y=b[sortK];if(x==null)x=1e12;if(y==null)y=1e12;if(typeof x==='string')return sortDir*x.localeCompare(y);return sortDir*(x-y);});
@@ -1773,25 +1775,27 @@ function reportBy(rows,key){
 }
 function reportCombo(rows){
   const g={};
-  for(const r of rows){const canal=(r.canal||'(sem)'),uf=(r.uf||'(sem)'),k=canal+'||'+uf;
-    if(!g[k])g[k]={canal,uf,n:0,cte:0,over:0,cot:0};
-    g[k].n++;g[k].cte+=r.cte||0;if(r.cotacao!=null){g[k].cot++;if(r.cotVsCte<0)g[k].over+=(-r.cotVsCte);}}
-  return Object.values(g).sort((a,b)=>a.canal.localeCompare(b.canal)||b.over-a.over);
+  for(const r of rows){const transp=(r.grupo||'(sem transportadora)'),uf=(r.uf||'(sem)'),k=transp+'||'+uf;
+    if(!g[k])g[k]={transp,uf,n:0,cte:0,over:0,cot:0,lucro:0};
+    g[k].n++;g[k].cte+=r.cte||0;g[k].lucro+=r.lucro||0;if(r.cotacao!=null){g[k].cot++;if(r.cotVsCte<0)g[k].over+=(-r.cotVsCte);}}
+  return Object.values(g).sort((a,b)=>a.transp.localeCompare(b.transp)||b.over-a.over);
 }
+function pctTxt(over,cte){ return (cte>0)?((over/cte*100).toFixed(1).replace('.',',')+'%'):'—'; }
 function renderReport(rows){
-  const fill=(id,data)=>{const el=document.getElementById(id);if(!el)return;el.innerHTML=data.map(d=>`<tr><td class="l">${d.grupo}</td><td>${d.notas}</td><td>${brl(d.cte)}</td><td class="${d.over>0?'neg':''}">${brl(d.over)}</td></tr>`).join('')||'<tr><td colspan="4" class="muted" style="text-align:center">Sem dados no filtro.</td></tr>';};
+  const fill=(id,data)=>{const el=document.getElementById(id);if(!el)return;el.innerHTML=data.map(d=>`<tr><td class="l">${d.grupo}</td><td>${d.notas}</td><td>${brl(d.cte)}</td><td class="${d.over>0?'neg':''}">${brl(d.over)}</td><td class="${d.over>0?'neg':''}">${pctTxt(d.over,d.cte)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted" style="text-align:center">Sem dados no filtro.</td></tr>';};
   fill('repUF',reportBy(rows,'uf'));
   fill('repCanal',reportBy(rows,'canal'));
   const cel=document.getElementById('repCombo');
-  if(cel){const c=reportCombo(rows);cel.innerHTML=c.map(d=>`<tr><td class="l">${d.canal}</td><td class="l">${d.uf}</td><td>${d.n}</td><td>${brl(d.cte)}</td><td class="${d.over>0?'neg':''}">${brl(d.over)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted" style="text-align:center">Sem dados no filtro.</td></tr>';}
+  if(cel){const c=reportCombo(rows);cel.innerHTML=c.map(d=>`<tr><td class="l">${d.transp}</td><td class="l">${d.uf}</td><td>${d.n}</td><td>${brl(d.cte)}</td><td class="${d.over>0?'neg':''}">${brl(d.over)}</td><td class="${d.over>0?'neg':''}">${pctTxt(d.over,d.cte)}</td><td class="${d.lucro<0?'neg':'pos'}">${brl(d.lucro)}</td><td class="${d.lucro<0?'neg':'pos'}">${pctTxt(d.lucro,d.cte)}</td></tr>`).join('')||'<tr><td colspan="8" class="muted" style="text-align:center">Sem dados no filtro.</td></tr>';}
 }
 function exportReport(){
   const rows=filtered();
-  const map=d=>({Grupo:d.grupo,Notas:d.notas,Soma_Transportadora_CTe:d.cte,Cobranca_a_mais:d.over,Notas_com_cotacao:d.cot});
+  const pctNum=(over,cte)=>cte>0?+(over/cte*100).toFixed(1):0;
+  const map=d=>({Grupo:d.grupo,Notas:d.notas,Soma_Transportadora_CTe:d.cte,Cobranca_a_mais:d.over,Pct:pctNum(d.over,d.cte),Notas_com_cotacao:d.cot});
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportBy(rows,'uf').map(map)),'Por Estado');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportBy(rows,'canal').map(map)),'Por Canal');
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportCombo(rows).map(d=>({Canal:d.canal,UF:d.uf,Notas:d.n,Soma_Transportadora_CTe:d.cte,Cobranca_a_mais:d.over,Notas_com_cotacao:d.cot}))),'Canal x Estado');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportCombo(rows).map(d=>({Transportadora:d.transp,UF:d.uf,Notas:d.n,Soma_Transportadora_CTe:d.cte,Cobranca_a_mais:d.over,Pct:pctNum(d.over,d.cte),Lucro:d.lucro,Pct_Lucro:pctNum(d.lucro,d.cte),Notas_com_cotacao:d.cot}))),'Transportadora x Estado');
   const cf=document.getElementById('fCarrier').value;const suf=(cf&&cf!=='all')?('-'+cf.replace(/[^a-zA-Z]/g,'')):'';
   XLSX.writeFile(wb,`relatorio-conciliacao${suf}.xlsx`);
 }
