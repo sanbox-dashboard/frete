@@ -164,13 +164,26 @@
     </div>
   </div>
 
+  <style>
+  .msel{position:relative}
+  .msel>summary{list-style:none;cursor:pointer;background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;font:700 .75rem 'Nunito';color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .msel>summary::-webkit-details-marker{display:none}
+  .msel>summary::after{content:'▾';float:right;color:var(--mu);margin-left:6px}
+  .msel[open]>summary{border-color:var(--or)}
+  .msel-body{position:absolute;z-index:50;left:0;top:calc(100% + 4px);min-width:230px;max-height:300px;overflow:auto;background:var(--wh);border:1px solid var(--bd);border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.15);padding:8px}
+  .msel-item{display:flex;align-items:center;gap:8px;padding:4px 6px;font:700 .72rem 'Nunito';border-radius:6px;cursor:pointer}
+  .msel-item:hover{background:var(--bg)}
+  .msel-item input{width:auto}
+  .msel-actions{padding:2px 6px 8px;font:800 .66rem 'Nunito';border-bottom:1px solid var(--bd);margin-bottom:4px}
+  .msel-actions a{color:var(--or);text-decoration:none;cursor:pointer;margin-right:4px}
+  </style>
   <div class="card">
     <h2>3 · Filtros <span class="muted">(o dashboard recalcula tudo sobre o filtro)</span></h2>
     <div class="filterbar">
       <div><label>Mês</label><select id="fMonth" onchange="render()"></select></div>
-      <div><label>Transportadora (CT-e)</label><select id="fCarrier" onchange="render()"></select></div>
-      <div><label>Canal de vendas</label><select id="fCanal" onchange="render()"></select></div>
-      <div><label>Estado (UF)</label><select id="fUF" onchange="render()"></select></div>
+      <div><label>Transportadora (CT-e)</label><details class="msel"><summary id="sCarrier">Transportadora: todas</summary><div class="msel-body" id="lCarrier"></div></details></div>
+      <div><label>Canal de vendas</label><details class="msel"><summary id="sCanal">Canal: todas</summary><div class="msel-body" id="lCanal"></div></details></div>
+      <div><label>Estado (UF)</label><details class="msel"><summary id="sUf">Estado: todas</summary><div class="msel-body" id="lUf"></div></details></div>
       <div><label>Data pedido — de</label><input type="date" id="fDateFrom" onchange="render()"></div>
       <div><label>até</label><input type="date" id="fDateTo" onchange="render()"></div>
       <div><label>Buscar (NF / pedido / cidade)</label><input id="search" placeholder="digite..." oninput="render()"></div>
@@ -227,6 +240,7 @@
           <th data-k="tms">Cobrado do cliente</th>
           <th data-k="cotVsCte">Cotação − Transp.</th>
           <th data-k="lucro">Lucro (Cliente − Transp.)</th>
+          <th class="l" data-k="motivo">Motivo</th>
           <th class="l" data-k="sku">SKU</th>
           <th class="l" data-k="produto">Produto</th>
           <th data-k="peso">Peso (kg)</th>
@@ -240,12 +254,6 @@
       </table>
     </div>
     <p class="hint" style="margin-top:10px"><b>Cotação − Transp.</b> negativo (vermelho) = a transportadora cobrou acima da cotação combinada. &nbsp; <b>Lucro</b> negativo = você cobrou do cliente menos do que a transportadora te cobrou. &nbsp; Canal aparece conforme as cotações são calculadas.</p>
-  </div>
-
-  <div class="card">
-    <h2>📄 Custos por componente (CT-e via XML) <span id="cteCustosCount" class="muted"></span></h2>
-    <p class="hint" style="margin-bottom:8px">Componentes extraídos dos XMLs das CT-e (cada transportadora pode ter nomes diferentes). Respeita o filtro atual.</p>
-    <div id="cteCustos"></div>
   </div>
 
   <div class="card">
@@ -266,6 +274,14 @@
       <div class="tbl-wrap" style="max-height:440px"><table><thead><tr><th class="l">Transportadora</th><th class="l">UF</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th><th>%</th><th>Lucro</th><th>% Lucro</th></tr></thead><tbody id="repCombo"></tbody></table></div>
     </div>
     <p class="hint" style="margin-top:10px">Σ Transportadora (CT-e) = total que a transportadora cobrou. Lucro = cobrado do cliente − CT-e (% sobre o CT-e). Cobrança a mais = quanto a transportadora cobrou acima da cotação. Por Estado e Por Canal ordenados pelo lucro (menor primeiro).</p>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary style="cursor:pointer;font-weight:800;font-size:1rem;list-style:none">📄 Custos por componente (CT-e via XML) <span id="cteCustosCount" class="muted"></span> <span class="muted" style="font-weight:600">— clique para abrir/fechar</span></summary>
+      <p class="hint" style="margin:10px 0 8px">Componentes extraídos dos XMLs das CT-e (cada transportadora pode ter nomes diferentes). Respeita o filtro atual.</p>
+      <div id="cteCustos"></div>
+    </details>
   </div>
 
   <p class="hint" style="text-align:center;margin:26px 0">Dados ao vivo da sua conta Intelipost (ID 22921). Cotação = valor REAL da cotação original (opção mais barata), buscada pelo CEP de destino na janela de até 4 dias antes da criação do pedido, casada pelo peso. "—" na cotação = não encontrada nessa janela. CT-e e valor do cliente são exatos do módulo de conciliação.</p>
@@ -1172,7 +1188,7 @@ function fechMonth(v){ const s=String(v==null?'':v).trim(); let m=s.match(/^(\d{
 const FECH_FORMATS=[
   {id:'ssw',carrier:'REDIVIX',skip:2,nf:5,cte:7,cteNum:1,cub:-1,date:2,detect:r=>String((r[0]||[])[0]||'').toLowerCase().indexOf('fatura:')>=0||(r[1]||[]).join('|').toUpperCase().indexOf('COD. ULTIMA OCORRENCIA')>=0},
   {id:'brasilweb',carrier:'BRASIL WEB',skip:1,nf:7,cte:10,cteNum:0,cub:9,date:2,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('nomeocorrencia')>=0},
-  {id:'trilog2',carrier:'TRILOG',skip:2,nf:53,cte:94,cteNum:10,cub:59,date:16,detect:r=>(((r[0]||[]).join('|')+'|'+(r[1]||[]).join('|')).toLowerCase().indexOf('composicao dos fretes')>=0)||((r[1]||[]).join('|').toLowerCase().indexOf('numero ct-e')>=0&&(r[1]||[]).join('|').toLowerCase().indexOf('peso calc')>=0)},
+  {id:'trilog2',carrier:'TRILOG',skip:2,nf:53,cte:94,cteNum:10,cub:59,date:16,motivo:14,detect:r=>(((r[0]||[]).join('|')+'|'+(r[1]||[]).join('|')).toLowerCase().indexOf('composicao dos fretes')>=0)||((r[1]||[]).join('|').toLowerCase().indexOf('numero ct-e')>=0&&(r[1]||[]).join('|').toLowerCase().indexOf('peso calc')>=0)},
   {id:'trilog',carrier:'TRILOG',skip:1,nf:1,cte:8,cteNum:0,cub:-1,date:6,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('numerocte')>=0},
   {id:'tex',carrier:'TEX',skip:1,nf:12,cte:39,cteNum:1,cub:-1,date:22,detect:r=>{const h=(r[0]||[]).join('|').toLowerCase();return h.indexOf('total servico')>=0&&h.indexOf('nota fiscal')>=0;}},
   {id:'alfa',carrier:'ALFA',skip:1,nf:3,cte:7,cteNum:2,cub:-1,date:8,detect:r=>(r[0]||[]).join('|').toLowerCase().indexOf('valor_cte')>=0},
@@ -1193,18 +1209,25 @@ function parseFech(rows,fmt){
   const byKey={},meta={};
   for(let i=fmt.skip;i<rows.length;i++){ const r=rows[i]; if(!r)continue;
     const nf=normNF(r[fmt.nf]); const val=brlNum(r[fmt.cte]); if(!nf||val==null)continue;
-    const ctn=fmt.cteNum>=0?String(r[fmt.cteNum]||'').trim():''; const key=ctn+'|'+val.toFixed(2);
+    const ctn=fmt.cteNum>=0?String(r[fmt.cteNum]||'').replace(/[\s ]/g,'').trim():'';
     const cub=(fmt.cub>=0)?(brlNum(r[fmt.cub])):null;
-    if(!byKey[nf]){byKey[nf]={};meta[nf]={month:fechMonth(r[fmt.date]),cteNum:''};}
-    if(!byKey[nf][key]){byKey[nf][key]={n:0,val:val,cub:cub};}
+    const motivo=(fmt.motivo!=null&&fmt.motivo>=0)?String(r[fmt.motivo]||'').trim():'';
+    const key=ctn+'|'+val.toFixed(2);
+    if(!byKey[nf]){byKey[nf]={};meta[nf]={month:fechMonth(r[fmt.date])};}
+    if(!byKey[nf][key]){byKey[nf][key]={cteNum:ctn,val:val,cub:cub,motivo:motivo,n:0};}
     byKey[nf][key].n++;
     if(!meta[nf].month)meta[nf].month=fechMonth(r[fmt.date]);
-    if(!meta[nf].cteNum&&ctn)meta[nf].cteNum=ctn;
   }
   const byNF={};
-  for(const nf in byKey){ let cte=0,dq=0,dv=0,cub=0,hasCub=false;
-    for(const key in byKey[nf]){ const e=byKey[nf][key]; cte+=e.val; if(e.n>1){dq+=(e.n-1);dv+=e.val*(e.n-1);} if(e.cub!=null){cub+=e.cub;hasCub=true;} }
-    byNF[nf]={cte:Math.round(cte*100)/100,month:meta[nf].month||0,dupQtd:dq,dupValor:Math.round(dv*100)/100,cteNum:meta[nf].cteNum||'',cub:(hasCub?Math.round(cub*100)/100:null)};
+  for(const nf in byKey){
+    const entries=Object.values(byKey[nf]);            // cada CT-e distinto (cteNum+valor)
+    let dupQtd=0,dupValor=0;
+    for(const e of entries){ if(e.n>1){dupQtd+=(e.n-1);dupValor+=e.val*(e.n-1);} }  // mesmo CT-e repetido = cobranca duplicada
+    const cteList=entries.map(e=>({cteNum:e.cteNum,val:Math.round(e.val*100)/100,cub:e.cub,motivo:e.motivo}));
+    cteList.sort((a,b)=>((/NORMAL/i.test(a.motivo)||!a.motivo)?0:1)-((/NORMAL/i.test(b.motivo)||!b.motivo)?0:1)); // NORMAL como linha principal
+    const cteTotal=Math.round(cteList.reduce((s,e)=>s+e.val,0)*100)/100;
+    let cub=0,hasCub=false; for(const e of cteList){ if(e.cub!=null){cub+=e.cub;hasCub=true;} }
+    byNF[nf]={cteList,cte:cteTotal,month:meta[nf].month||0,dupQtd,dupValor:Math.round(dupValor*100)/100,cub:(hasCub?Math.round(cub*100)/100:null),cteNum:cteList[0]?cteList[0].cteNum:'',motivo:cteList[0]?cteList[0].motivo:''};
   }
   return byNF;
 }
@@ -1244,24 +1267,30 @@ async function aplicarFech(){
   if(!FECH.length){alert('Suba os arquivos primeiro.');return;}
   const rows=store.rows;
   const idx={}; rows.forEach((r,i)=>{const k=normNF(r.nf); if(k&&!(k in idx))idx[k]=i;});
-  let upd=0,ins=0,dupN=0;
+  const splitSet=new Set(rows.filter(r=>r.cteSplit).map(r=>normNF(r.nf)+'|'+String(r.cteNumFech||'')));
+  let upd=0,ins=0,dupN=0,splitN=0;
   for(const f of FECH){ if(f.err)continue;
-    for(const nf in f.byNF){ const info=f.byNF[nf]; const val=info.cte;
+    for(const nf in f.byNF){ const info=f.byNF[nf];
+      const list=(info.cteList&&info.cteList.length)?info.cteList:[{cteNum:info.cteNum,val:info.cte,cub:info.cub,motivo:info.motivo}];
+      const primary=list[0];
       if(nf in idx){ const r=rows[idx[nf]];
-        if(info.cteNum)r.cteNumFech=info.cteNum; if(info.cub!=null)r.cubFech=info.cub;
-        if(r.cteFonte==='xml'){continue;} if(Math.abs((r.cte||0)-val)>0.01){ if(r.cteOrig==null)r.cteOrig=r.cte; r.cte=val; r.cteFonte='fechamento'; upd++; }
+        if(primary.cteNum)r.cteNumFech=primary.cteNum; if(primary.cub!=null)r.cubFech=primary.cub; if(primary.motivo)r.motivo=primary.motivo;
+        if(r.cteFonte!=='xml'){ if(Math.abs((r.cte||0)-primary.val)>0.01){ if(r.cteOrig==null)r.cteOrig=r.cte; r.cte=primary.val; r.cteFonte='fechamento'; upd++; } }
         if(info.dupQtd>0){ r.dupFech=true; r.dupQtd=info.dupQtd; r.dupValor=info.dupValor; r.carrierFech=f.carrier; dupN++; }
       } else {
-        const row={nf:nf,order:'',month:info.month||0,carrier:f.carrier,cte:val,tms:0,status:'',margin:'',inserted:true,cteFonte:'fechamento',cteNumFech:info.cteNum||'',cubFech:(info.cub!=null?info.cub:null)};
-        if(info.dupQtd>0){ row.dupFech=true; row.dupQtd=info.dupQtd; row.dupValor=info.dupValor; dupN++; }
-        rows.push(row); idx[nf]=rows.length-1; ins++;
+        rows.push({nf:nf,order:'',month:info.month||0,carrier:f.carrier,cte:primary.val,tms:0,status:'',margin:'',inserted:true,cteFonte:'fechamento',cteNumFech:primary.cteNum||'',cubFech:(primary.cub!=null?primary.cub:null),motivo:primary.motivo||'',dupFech:info.dupQtd>0,dupQtd:info.dupQtd,dupValor:info.dupValor});
+        idx[nf]=rows.length-1; ins++; if(info.dupQtd>0)dupN++;
       }
+      // CT-e ADICIONAIS da mesma NF -> uma linha duplicada por CT-e (não soma; cada uma com seu valor e motivo)
+      for(let k=1;k<list.length;k++){ const e=list[k]; const sk=nf+'|'+String(e.cteNum||''); if(splitSet.has(sk))continue; splitSet.add(sk);
+        rows.push({nf:nf,order:'',month:info.month||0,carrier:f.carrier,cte:e.val,tms:0,inserted:true,cteSplit:true,cteFonte:'fechamento',cteNumFech:e.cteNum||'',cubFech:(e.cub!=null?e.cub:null),motivo:e.motivo||''}); splitN++; }
     }
   }
   store.rows=rows; store.updated=new Date().toISOString(); applySkuMap();
   FECH=[]; document.getElementById('fechReview').innerHTML=''; document.getElementById('fechInput').value='';
-  ['fMonth','fCarrier','fUF','fCanal'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
-  prog('Fechamento aplicado: '+upd+' CT-e corrigidos, '+ins+' notas novas inseridas, '+dupN+' com cobranca duplicada marcada (use o filtro "so cobranca duplicada" para pedir estorno).');
+  ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+  buildFilters();
+  prog('Fechamento aplicado: '+upd+' CT-e corrigidos, '+ins+' notas novas, '+splitN+' linhas de CT-e adicionais (multi-CT-e duplicadas), '+dupN+' com cobrança duplicada.');
   render(); await autoBackup();
 }
 
@@ -1329,7 +1358,7 @@ async function aplicarXmlFech(){
   }
   store.rows=rows; store.updated=new Date().toISOString(); applySkuMap();
   XMLF=null; document.getElementById('xmlReview').innerHTML=''; document.getElementById('xmlInput').value='';
-  ['fMonth','fCarrier','fUF','fCanal'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+  ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
   prog('XMLs aplicados: '+upd+' NFs atualizadas, '+ins+' novas'+(pend?(' · '+pend+' complementares pendentes (sem original)'):'')+'. Componentes gravados.');
   render(); await autoBackup();
 }
@@ -1678,7 +1707,7 @@ async function restoreBackup(){
     if(d.quotes){const merged={...store.quotes};for(const nf in d.quotes){merged[nf]={...(merged[nf]||{}),...d.quotes[nf]};}store.quotes=merged;}
     if(d.rows && (!store.rows.length || confirm('Substituir também a lista de notas (CT-e × cliente) pela do backup?'))) store.rows=d.rows;
     if(d.updated) store.updated=d.updated;
-    ['fMonth','fCarrier','fCanal','fUF'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+    ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
     const withCot=Object.values(store.quotes).filter(q=>q&&q.cotacao!=null).length;
     prog('Restaurado. Notas no cache com cotação: '+withCot+' · notas: '+store.rows.length+'.');
     render();
@@ -1705,7 +1734,7 @@ async function repairBackups(){
   }catch(e){prog('Erro lendo pasta: '+e.message);toggleBusy(false);return;}
   store.quotes=merged;
   if(rowsBest.length>store.rows.length)store.rows=rowsBest;
-  ['fMonth','fCarrier','fCanal','fUF'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+  ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
   const withCot=Object.values(merged).filter(q=>q&&q.cotacao!=null).length;
   prog('Reparo concluído: '+files+' backups juntados · '+withCot+' notas com cotação · '+store.rows.length+' notas.');
   toggleBusy(false);render();await autoBackup();
@@ -1730,7 +1759,7 @@ function renderCubFactors(){
 function enriched(){
   const q=store.quotes;
   return store.rows.map(r=>{
-    const cq=q[r.nf]||{};const cot=(cq.cotacao===undefined)?null:cq.cotacao;
+    const cq=q[r.nf]||{};let cot=(cq.cotacao===undefined)?null:cq.cotacao;
     const skm=(SKUMAP&&r.order&&SKUMAP[String(r.order)])||null;
     const skuStr=r.sku||(skm?skm.sku:'')||'';
     const prodStr=r.prod||(skm?skm.prod:'')||'';
@@ -1738,19 +1767,17 @@ function enriched(){
     const _canal=mapCanal(cq.canal);
     const ov=freteOverride(_canal,cq.uf,cq.pedidoData,skuStr);
     if(ov){ if(ov.ambiguous)tmsAmbig=true; else {tmsOrig=r.tms;tms=ov.val;} }
-    const _grp=carrierGroup(r.carrier); const _vols=cq.vols||[]; const _peso=_vols.reduce(function(x,v){return x+(v.p||0);},0); const _v0=_vols[0]; const _dims=_v0?('L:'+_v0.w+' A:'+_v0.h+' P:'+_v0.l):''; const _fat=cubFactor(_grp); const _cub=_vols.length?_vols.reduce(function(x,v){return x+((v.w/100)*(v.h/100)*(v.l/100)*_fat);},0):null; const _cubF=(r.cubFech!=null)?r.cubFech:null; const _cdiv=(_cubF!=null&&_cub!=null&&_cubF>_cub*1.05); const _cdivTxt=_cdiv?(_cubF.toLocaleString('pt-BR',{maximumFractionDigits:2})+' (+'+(_cubF-_cub).toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg)'):''; return {...r,grupo:_grp,cotacao:cot,peso:_peso,dimsStr:_dims,cubagem:_cub,pesoAlerta:(_cub!=null&&_peso>_cub),cteNumFech:r.cteNumFech||'',cubFech:_cubF,cubDiverg:_cdiv,cubDivergTxt:_cdivTxt,approx:cq.approx||false,canal:_canal,cep:cq.cep||'',cidade:cq.cidade||'',uf:cq.uf||'',pedidoData:cq.pedidoData||'',quoteId:cq.quote_id||'',cotVsCte:(cot==null)?null:(cot-r.cte),sku:skuStr,produto:prodStr,tms:tms,tmsOrig:tmsOrig,tmsAmbig:tmsAmbig,lucro:(tms-r.cte)};
+    if(r.cteSplit){ tms=0; tmsOrig=null; tmsAmbig=false; cot=null; } // linha secundária de CT-e: só conta o CT-e, sem duplicar cobrado/cotação
+    const _grp=carrierGroup(r.carrier); const _vols=cq.vols||[]; const _peso=_vols.reduce(function(x,v){return x+(v.p||0);},0); const _v0=_vols[0]; const _dims=_v0?('L:'+_v0.w+' A:'+_v0.h+' P:'+_v0.l):''; const _fat=cubFactor(_grp); const _cub=_vols.length?_vols.reduce(function(x,v){return x+((v.w/100)*(v.h/100)*(v.l/100)*_fat);},0):null; const _cubF=(r.cubFech!=null)?r.cubFech:null; const _cdiv=(_cubF!=null&&_cub!=null&&_cubF>_cub*1.05); const _cdivTxt=_cdiv?(_cubF.toLocaleString('pt-BR',{maximumFractionDigits:2})+' (+'+(_cubF-_cub).toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg)'):''; return {...r,grupo:_grp,cotacao:cot,peso:_peso,dimsStr:_dims,cubagem:_cub,pesoAlerta:(_cub!=null&&_peso>_cub),cteNumFech:r.cteNumFech||'',cubFech:_cubF,cubDiverg:_cdiv,cubDivergTxt:_cdivTxt,approx:cq.approx||false,canal:_canal,cep:cq.cep||'',cidade:cq.cidade||'',uf:cq.uf||'',pedidoData:cq.pedidoData||'',quoteId:cq.quote_id||'',cotVsCte:(cot==null)?null:(cot-r.cte),sku:skuStr,produto:prodStr,tms:tms,tmsOrig:tmsOrig,tmsAmbig:tmsAmbig,lucro:(tms-r.cte),motivo:r.motivo||'',cteSplit:!!r.cteSplit};
   });
 }
 function filtered(){
   let rows=enriched();
   const mf=document.getElementById('fMonth').value;
   if(mf&&mf!=='all')rows=rows.filter(r=>String(r.month)===mf);
-  const cf=document.getElementById('fCarrier').value;
-  if(cf&&cf!=='all')rows=rows.filter(r=>r.grupo===cf);
-  const kf=document.getElementById('fCanal').value;
-  if(kf&&kf!=='all')rows=rows.filter(r=>(r.canal||'(sem canal)')===kf);
-  const uf=document.getElementById('fUF').value;
-  if(uf&&uf!=='all')rows=rows.filter(r=>(r.uf||'(sem)')===uf);
+  if(HIDDEN.carrier.size)rows=rows.filter(r=>!HIDDEN.carrier.has(r.grupo||'(sem transportadora)'));
+  if(HIDDEN.canal.size)rows=rows.filter(r=>!HIDDEN.canal.has(r.canal||'(sem canal)'));
+  if(HIDDEN.uf.size)rows=rows.filter(r=>!HIDDEN.uf.has(r.uf||'(sem)'));
   const dFrom=document.getElementById('fDateFrom'), dTo=document.getElementById('fDateTo');
   const df=dFrom?dFrom.value:'', dt=dTo?dTo.value:'';
   if(df||dt)rows=rows.filter(r=>{const d=(r.pedidoData||'').slice(0,10); if(!d)return false; if(df&&d<df)return false; if(dt&&d>dt)return false; return true;});
@@ -1763,15 +1790,27 @@ function filtered(){
   return rows;
 }
 let sortK='cotVsCte',sortDir=1;
+// ==== Filtros multi-seleção (Transportadora, Canal, UF) — HIDDEN = valores desmarcados ====
+const HIDDEN={carrier:new Set(),canal:new Set(),uf:new Set()};
+const CURVALS={carrier:[],canal:[],uf:[]};
+const FDIM={carrier:{list:'lCarrier',sum:'sCarrier',lbl:'Transportadora'},canal:{list:'lCanal',sum:'sCanal',lbl:'Canal'},uf:{list:'lUf',sum:'sUf',lbl:'Estado'}};
+function fesc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function updateMultiSummary(dim){ const d=FDIM[dim],el=document.getElementById(d.sum); if(!el)return; const vals=CURVALS[dim]||[]; const hid=vals.filter(v=>HIDDEN[dim].has(v)).length; el.textContent=d.lbl+': '+(hid===0?'todas':(vals.length-hid)+'/'+vals.length); }
+function buildMulti(dim,vals){ CURVALS[dim]=vals; const d=FDIM[dim],list=document.getElementById(d.list); if(!list)return;
+  if(list.dataset.built&&list.dataset.count==vals.length){ updateMultiSummary(dim); return; }
+  list.innerHTML='<div class="msel-actions"><a onclick="setAllFilter(\''+dim+'\',true)">marcar todos</a>·<a onclick="setAllFilter(\''+dim+'\',false)">desmarcar</a></div>'+
+    vals.map(v=>'<label class="msel-item"><input type="checkbox" '+(HIDDEN[dim].has(v)?'':'checked')+' data-v="'+fesc(v)+'" onchange="toggleFilterVal(\''+dim+'\',this.dataset.v,this.checked)"> '+fesc(v)+'</label>').join('');
+  list.dataset.built='1'; list.dataset.count=vals.length; updateMultiSummary(dim);
+}
+function toggleFilterVal(dim,val,checked){ if(checked)HIDDEN[dim].delete(val); else HIDDEN[dim].add(val); updateMultiSummary(dim); render(); }
+function setAllFilter(dim,checked){ if(checked)HIDDEN[dim].clear(); else HIDDEN[dim]=new Set(CURVALS[dim]); const l=document.getElementById(FDIM[dim].list); if(l)l.dataset.built=''; buildFilters(); render(); }
 function buildFilters(){
   const rows=enriched();
-  const fill=(el,vals)=>{ const cur=el.value; if(el.dataset.built&&el.dataset.count==vals.length)return;
-    el.innerHTML='<option value="all">Todos</option>'+vals.map(v=>`<option value="${v.v}">${v.t}</option>`).join('');
-    if(cur)el.value=cur; el.dataset.built='1'; el.dataset.count=vals.length; };
-  fill(document.getElementById('fMonth'),[...new Set(rows.map(r=>r.month))].sort((a,b)=>a-b).map(m=>({v:m,t:MESES[m]+'/'+YEAR})));
-  fill(document.getElementById('fCarrier'),[...new Set(rows.map(r=>r.grupo))].sort().map(c=>({v:c,t:c})));
-  fill(document.getElementById('fCanal'),[...new Set(rows.map(r=>r.canal).filter(Boolean))].sort().map(c=>({v:c,t:c})));
-  fill(document.getElementById('fUF'),[...new Set(rows.map(r=>r.uf).filter(Boolean))].sort().map(c=>({v:c,t:c})));
+  const fm=document.getElementById('fMonth'); const mvals=[...new Set(rows.map(r=>r.month))].sort((a,b)=>a-b);
+  if(fm&&!(fm.dataset.built&&fm.dataset.count==mvals.length)){ const cur=fm.value; fm.innerHTML='<option value="all">Todos</option>'+mvals.map(m=>`<option value="${m}">${MESES[m]}/${YEAR}</option>`).join(''); if(cur)fm.value=cur; fm.dataset.built='1'; fm.dataset.count=mvals.length; }
+  buildMulti('carrier',[...new Set(rows.map(r=>r.grupo||'(sem transportadora)'))].sort());
+  buildMulti('canal',[...new Set(rows.map(r=>r.canal||'(sem canal)'))].sort());
+  buildMulti('uf',[...new Set(rows.map(r=>r.uf||'(sem)'))].sort());
 }
 function fonteTag(r){ if(r.cteFonte==='xml')return '<span class="tag in">📄 XML</span>'; if(r.cteFonte==='fechamento')return '<span class="tag">📋 Fechamento</span>'; return (r.cte!=null&&r.cte>0)?'<span class="tag" style="opacity:.65">⚙ Sistema</span>':'<span class="muted">—</span>'; }
 function render(){
@@ -1800,8 +1839,8 @@ function render(){
     const cvTxt=cv==null?'<span class="muted">—</span>':`<span class="${cv<0?'neg':'pos'}">${brl(cv)}</span>`;
     const lu=`<span class="${r.lucro<0?'neg':'pos'}">${brl(r.lucro)}</span>`;
     const mtag=r.margin==='OUT_OF_MARGIN'?'<span class="tag out">fora</span>':(r.margin==='IN_MARGIN'?'<span class="tag in">ok</span>':'<span class="tag">'+(r.margin||'—')+'</span>');
-    return `<tr><td class="l">${r.dupFech?'<span title="Cobranca duplicada no fechamento: '+r.dupQtd+'x (R$ '+(r.dupValor||0).toFixed(2).replace(".",",")+') - pedir estorno" style="color:#ffb020">⚠ </span>':''}${r.nf}${r.inserted?' <span class="muted" title="Nota inserida via fechamento (nao estava no sistema)">➕</span>':''}</td><td class="l muted" title="Nº do CT-e do relatório de fechamento">${r.cteNumFech||'—'}</td><td class="l muted" title="ID da cotação usada">${r.quoteId||'—'}</td><td class="l muted">${r.order}</td><td class="l muted">${fmtDay(r.pedidoData)}</td><td class="l">${MESES[r.month]}</td><td class="l" title="${(r.carrier||'').replace(/"/g,'')}">${r.grupo||'—'}</td><td class="l muted">${r.canal||'—'}</td><td class="l muted">${r.cep||'—'}</td><td class="l muted">${r.cidade||'—'}</td><td class="l">${r.uf||'—'}</td><td${r.approx?' title="Cotação aproximada — o peso não bateu exato, peguei a cotação de peso mais próximo no mesmo período"':''}>${r.approx&&r.cotacao!=null?'≈ ':''}${brl(r.cotacao)}</td><td${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?(' class="pos" title="CT-e do fechamento da transportadora'+(r.cteOrig!=null?' (original do sistema: '+brl(r.cteOrig)+')':'')+'"'):''}>${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?'✓ ':''}${brl(r.cte)}</td><td class="l">${fonteTag(r)}</td><td${r.tmsOrig!=null?' class="pos" title="Frete substituído pela tabela Amazon (Planilha1). Original: '+brl(r.tmsOrig)+'"':(r.tmsAmbig?' class="neg" title="Vários SKUs bateram — não substituí (ambíguo)"':'')}>${r.tmsOrig!=null?'✎ ':''}${brl(r.tms)}</td><td>${cvTxt}</td><td>${lu}</td><td class="l muted">${r.sku||'—'}</td><td class="l muted" title="${(r.produto||'').replace(/"/g,'')}">${(r.produto||'—').slice(0,60)}</td><td${r.pesoAlerta?' style="background:#fde68a;color:#7a5b00;font-weight:800" title="Peso real maior que a cubagem da cotação"':''}>${r.peso?r.peso.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td class="l muted">${r.dimsStr||'—'}</td><td>${r.cubagem!=null?r.cubagem.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td>${r.cubFech!=null?r.cubFech.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td${r.cubDiverg?' style="background:#fecaca;color:#7f1d1d;font-weight:800" title="Cubagem do relatório acima da cotação em mais de 5%"':''}>${r.cubDivergTxt||'—'}</td><td class="l" style="white-space:nowrap"><button class="btn-sm" title="Editar campos desta nota" onclick="openEdit('${String(r.nf).replace(/'/g,"")}')">✏️</button> <button class="btn-sm" title="Excluir esta nota" style="color:#dc2626;border-color:#f3c0c0" onclick="deleteRow('${String(r.nf).replace(/'/g,"")}')">🗑️</button></td></tr>`;
-  }).join('')||'<tr><td colspan="25" class="muted" style="text-align:center;padding:24px">Sem dados no filtro. Configure o token e clique em “Puxar CT-e × Cliente”.</td></tr>';
+    return `<tr><td class="l">${r.dupFech?'<span title="Cobranca duplicada no fechamento: '+r.dupQtd+'x (R$ '+(r.dupValor||0).toFixed(2).replace(".",",")+') - pedir estorno" style="color:#ffb020">⚠ </span>':''}${r.nf}${r.inserted?' <span class="muted" title="Nota inserida via fechamento (nao estava no sistema)">➕</span>':''}</td><td class="l muted" title="Nº do CT-e do relatório de fechamento">${r.cteNumFech||'—'}</td><td class="l muted" title="ID da cotação usada">${r.quoteId||'—'}</td><td class="l muted">${r.order}</td><td class="l muted">${fmtDay(r.pedidoData)}</td><td class="l">${MESES[r.month]}</td><td class="l" title="${(r.carrier||'').replace(/"/g,'')}">${r.grupo||'—'}</td><td class="l muted">${r.canal||'—'}</td><td class="l muted">${r.cep||'—'}</td><td class="l muted">${r.cidade||'—'}</td><td class="l">${r.uf||'—'}</td><td${r.approx?' title="Cotação aproximada — o peso não bateu exato, peguei a cotação de peso mais próximo no mesmo período"':''}>${r.approx&&r.cotacao!=null?'≈ ':''}${brl(r.cotacao)}</td><td${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?(' class="pos" title="CT-e do fechamento da transportadora'+(r.cteOrig!=null?' (original do sistema: '+brl(r.cteOrig)+')':'')+'"'):''}>${(r.cteFonte==='fechamento'||r.cteFonte==='xml')?'✓ ':''}${brl(r.cte)}</td><td class="l">${fonteTag(r)}</td><td${r.tmsOrig!=null?' class="pos" title="Frete substituído pela tabela Amazon (Planilha1). Original: '+brl(r.tmsOrig)+'"':(r.tmsAmbig?' class="neg" title="Vários SKUs bateram — não substituí (ambíguo)"':'')}>${r.tmsOrig!=null?'✎ ':''}${brl(r.tms)}</td><td>${cvTxt}</td><td>${lu}</td><td class="l"${(r.motivo&&!/NORMAL/i.test(r.motivo))?' style="color:#b45309;font-weight:700" title="Motivo do CT-e"':' title="Motivo do CT-e"'}>${r.motivo||'—'}</td><td class="l muted">${r.sku||'—'}</td><td class="l muted" title="${(r.produto||'').replace(/"/g,'')}">${(r.produto||'—').slice(0,60)}</td><td${r.pesoAlerta?' style="background:#fde68a;color:#7a5b00;font-weight:800" title="Peso real maior que a cubagem da cotação"':''}>${r.peso?r.peso.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td class="l muted">${r.dimsStr||'—'}</td><td>${r.cubagem!=null?r.cubagem.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td>${r.cubFech!=null?r.cubFech.toLocaleString('pt-BR',{maximumFractionDigits:2}):'—'}</td><td${r.cubDiverg?' style="background:#fecaca;color:#7f1d1d;font-weight:800" title="Cubagem do relatório acima da cotação em mais de 5%"':''}>${r.cubDivergTxt||'—'}</td><td class="l" style="white-space:nowrap"><button class="btn-sm" title="Editar campos desta nota" onclick="openEdit('${String(r.nf).replace(/'/g,"")}')">✏️</button> <button class="btn-sm" title="Excluir esta nota" style="color:#dc2626;border-color:#f3c0c0" onclick="deleteRow('${String(r.nf).replace(/'/g,"")}')">🗑️</button></td></tr>`;
+  }).join('')||'<tr><td colspan="26" class="muted" style="text-align:center;padding:24px">Sem dados no filtro. Configure o token e clique em “Puxar CT-e × Cliente”.</td></tr>';
   drawChart(rows);
   renderReport(rows);
   renderCteCustos(rows);
@@ -1836,7 +1875,7 @@ function exportReport(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportBy(rows,'uf').map(map)),'Por Estado');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportBy(rows,'canal').map(map)),'Por Canal');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportCombo(rows).map(d=>({Transportadora:d.transp,UF:d.uf,Notas:d.n,Soma_Transportadora_CTe:d.cte,Cobranca_a_mais:d.over,Pct:pctNum(d.over,d.cte),Lucro:d.lucro,Pct_Lucro:pctNum(d.lucro,d.cte),Notas_com_cotacao:d.cot}))),'Transportadora x Estado');
-  const cf=document.getElementById('fCarrier').value;const suf=(cf&&cf!=='all')?('-'+cf.replace(/[^a-zA-Z]/g,'')):'';
+  const suf=(HIDDEN.carrier.size||HIDDEN.canal.size||HIDDEN.uf.size)?'-filtrado':'';
   XLSX.writeFile(wb,`relatorio-conciliacao${suf}.xlsx`);
 }
 function drawChart(rows){
@@ -1848,7 +1887,7 @@ function drawChart(rows){
   chart=new Chart(document.getElementById('chart'),{type:'bar',data:{labels,datasets:[{label:'Transportadora cobrou a mais',data:over,backgroundColor:'#ff5d6c'},{label:'Lucro (cliente − transp.)',data:lucro,backgroundColor:'#39d98a'}]},options:{responsive:true,plugins:{legend:{labels:{color:'#9aa3b2'}}},scales:{x:{ticks:{color:'#9aa3b2'},grid:{color:'#20242e'}},y:{ticks:{color:'#9aa3b2',callback:v=>'R$ '+v.toLocaleString('pt-BR')},grid:{color:'#20242e'}}}}});
 }
 function exportRows(){
-  const rows=filtered();const cn=[];rows.forEach(r=>{if(r.comp)for(const k in r.comp){if(cn.indexOf(k)<0)cn.push(k);}});return rows.map(r=>{const o={NF:r.nf,CTe_num_relatorio:(r.cteNumFech||''),ID_Cotacao:(r.quoteId||''),Pedido:r.order,Data_pedido:fmtDay(r.pedidoData),Mes:MESES[r.month],Transportadora:r.grupo,Transportadora_original:r.carrier,Canal:r.canal,CEP:r.cep,Cidade:r.cidade,UF:r.uf,Cotacao:r.cotacao,Transportadora_cobrou_CTe:r.cte,Cobrado_cliente_TMS:r.tms,Cobrado_cliente_original:(r.tmsOrig!=null?r.tmsOrig:''),Frete_substituido:(r.tmsOrig!=null?'SIM':''),Cotacao_menos_Transp:r.cotVsCte,Lucro_Cliente_menos_Transp:r.lucro,Fonte_CTe:(r.cteFonte||''),Inserida_fechamento:(r.inserted?'SIM':''),Cobranca_duplicada:(r.dupFech?(r.dupQtd+'x'):''),Valor_cobrado_a_mais_dup:(r.dupValor||''),SKU:r.sku,Produto:r.produto,Peso_kg:(r.peso||''),Dimensoes:(r.dimsStr||''),Cubagem_cotacao:(r.cubagem!=null?r.cubagem:''),Cubagem_relatorio:(r.cubFech!=null?r.cubFech:''),Divergencia_cubagem:(r.cubDivergTxt||'')};cn.forEach(n=>{o["CTe_"+n]=(r.comp&&r.comp[n]!=null)?r.comp[n]:"";});return o;});
+  const rows=filtered();const cn=[];rows.forEach(r=>{if(r.comp)for(const k in r.comp){if(cn.indexOf(k)<0)cn.push(k);}});return rows.map(r=>{const o={NF:r.nf,CTe_num_relatorio:(r.cteNumFech||''),ID_Cotacao:(r.quoteId||''),Pedido:r.order,Data_pedido:fmtDay(r.pedidoData),Mes:MESES[r.month],Transportadora:r.grupo,Transportadora_original:r.carrier,Canal:r.canal,CEP:r.cep,Cidade:r.cidade,UF:r.uf,Cotacao:r.cotacao,Transportadora_cobrou_CTe:r.cte,Cobrado_cliente_TMS:r.tms,Cobrado_cliente_original:(r.tmsOrig!=null?r.tmsOrig:''),Frete_substituido:(r.tmsOrig!=null?'SIM':''),Cotacao_menos_Transp:r.cotVsCte,Lucro_Cliente_menos_Transp:r.lucro,Motivo:(r.motivo||''),CTe_adicional:(r.cteSplit?'SIM':''),Fonte_CTe:(r.cteFonte||''),Inserida_fechamento:(r.inserted?'SIM':''),Cobranca_duplicada:(r.dupFech?(r.dupQtd+'x'):''),Valor_cobrado_a_mais_dup:(r.dupValor||''),SKU:r.sku,Produto:r.produto,Peso_kg:(r.peso||''),Dimensoes:(r.dimsStr||''),Cubagem_cotacao:(r.cubagem!=null?r.cubagem:''),Cubagem_relatorio:(r.cubFech!=null?r.cubFech:''),Divergencia_cubagem:(r.cubDivergTxt||'')};cn.forEach(n=>{o["CTe_"+n]=(r.comp&&r.comp[n]!=null)?r.comp[n]:"";});return o;});
 }
 function exportXLSX(){
   const data=exportRows();if(!data.length){alert('Sem dados no filtro.');return;}
@@ -1891,7 +1930,7 @@ async function loadCloud(force){
     if(d.rows && (force || !store.rows.length)) store.rows=d.rows;
     if(d.updated) store.updated=d.updated;
     applySkuMap();
-    ['fMonth','fCarrier','fCanal','fUF'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+    ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
     prog('Nuvem carregada: '+store.rows.length+' notas'+(d.updated?(' · atualizado '+fmtDate(d.updated)):'')+'.');
     render();
     return true;
