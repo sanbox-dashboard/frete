@@ -211,6 +211,21 @@
   </div>
 
   <div class="card">
+    <details>
+      <summary style="cursor:pointer;font-weight:900;font-size:.62rem;text-transform:uppercase;letter-spacing:.12em;color:var(--mu)">💰 Recuperações de pagamento (soma no lucro do mês)</summary>
+      <div class="row" style="margin-top:10px;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div><label class="hint">Transportadora</label><br><select id="recCarrier"></select></div>
+        <div><label class="hint">Mês</label><br><select id="recMonth"></select></div>
+        <div><label class="hint">Valor (R$)</label><br><input id="recVal" type="number" step="0.01" placeholder="0,00" style="width:130px"></div>
+        <div style="flex:1;min-width:180px"><label class="hint">Observação</label><br><input id="recObs" placeholder="ex.: divergências de CT-e recuperadas"></div>
+        <button class="primary" onclick="addRecuperacao()">➕ Adicionar</button>
+      </div>
+      <div id="recList" style="margin-top:12px"></div>
+      <p class="hint" style="margin-top:6px">O valor é somado ao <b>Lucro</b> do mês e transportadora escolhidos (aplica quando esse mês/transportadora estão no filtro). Não altera as notas individuais.</p>
+    </details>
+  </div>
+
+  <div class="card">
     <h2>Por mês <span class="muted">(sobre o filtro atual)</span></h2>
     <canvas id="chart" height="90"></canvas>
     <p class="hint" style="margin-top:10px">
@@ -1026,7 +1041,9 @@ const store={
   get updated(){return localStorage.getItem('cf.updated')||''},
   set updated(v){localStorage.setItem('cf.updated',v)},
   get cubagem(){try{return JSON.parse(localStorage.getItem('cf.cubagem')||'{}')}catch(e){return{}}},
-  set cubagem(v){localStorage.setItem('cf.cubagem',JSON.stringify(v))}
+  set cubagem(v){localStorage.setItem('cf.cubagem',JSON.stringify(v))},
+  get recuperacoes(){try{return JSON.parse(localStorage.getItem('cf.recuperacoes')||'[]')}catch(e){return[]}},
+  set recuperacoes(v){localStorage.setItem('cf.recuperacoes',JSON.stringify(v))}
 };
 
 function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('cf-db',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
@@ -1582,7 +1599,7 @@ async function atualizarCTe(){
 }
 function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnFrete','btnCte','btnRepair','btnKondado'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
 
-function backupData(){return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:store.rows,quotes:store.quotes};}
+function backupData(){return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:store.rows,quotes:store.quotes,recuperacoes:store.recuperacoes};}
 async function ensurePerm(h,mode='readwrite'){ if(!h)return false; const o={mode}; if((await h.queryPermission(o))==='granted')return true; if((await h.requestPermission(o))==='granted')return true; return false; }
 async function setBackupFolder(){
   if(!window.showDirectoryPicker){alert('Seu navegador não permite escolher pasta aqui. Use "Salvar backup" — ele baixa o arquivo normalmente.');return;}
@@ -1756,6 +1773,34 @@ function renderCubFactors(){
   const c=store.cubagem;
   el.innerHTML=grps.map(g=>'<label style="display:inline-flex;align-items:center;gap:5px;font-size:.66rem;margin:3px 10px 3px 0"><b>'+g+'</b> <input type="number" step="1" style="width:74px;padding:4px 6px" value="'+((c[g]!=null&&c[g]!=='')?c[g]:'')+'" placeholder="'+CUB_DEFAULT+'" onchange="setCub(this.getAttribute(\'data-g\'),this.value)" data-g="'+g.replace(/"/g,'&quot;')+'"></label>').join('')||'<span class="hint">Sem transportadoras ainda.</span>';
 }
+// ===== Recuperações de pagamento (soma no lucro por transportadora + mês) =====
+function recForMonth(m){ const H=HIDDEN.carrier; return (store.recuperacoes||[]).filter(x=>+x.month===+m && !H.has(x.carrier)).reduce((s,x)=>s+(+x.value||0),0); }
+function recTotalForMonths(monthSet){ const H=HIDDEN.carrier; return (store.recuperacoes||[]).filter(x=>monthSet.has(+x.month) && !H.has(x.carrier)).reduce((s,x)=>s+(+x.value||0),0); }
+function renderRecuperacoes(){
+  const cs=document.getElementById('recCarrier'), ms=document.getElementById('recMonth'), list=document.getElementById('recList');
+  if(cs){ const grps=(CURVALS.carrier&&CURVALS.carrier.length)?CURVALS.carrier:[...new Set(store.rows.map(r=>carrierGroup(r.carrier)).filter(Boolean))].sort(); if(cs.dataset.count!=grps.length){ const cur=cs.value; cs.innerHTML=grps.map(g=>'<option value="'+fesc(g)+'">'+fesc(g)+'</option>').join(''); cs.dataset.count=grps.length; if(cur)cs.value=cur; } }
+  if(ms && !ms.dataset.built){ let o=''; for(let m=1;m<=12;m++)o+='<option value="'+m+'">'+MESES[m]+'/'+YEAR+'</option>'; ms.innerHTML=o; ms.dataset.built='1'; const now=new Date(); if(now.getFullYear()===YEAR)ms.value=now.getMonth()+1; }
+  if(list){ const rec=store.recuperacoes||[];
+    list.innerHTML = rec.length? ('<table class="mini"><thead><tr><th class="l">Transportadora</th><th class="l">Mês</th><th>Valor</th><th class="l">Observação</th><th></th></tr></thead><tbody>'+
+      rec.slice().sort((a,b)=>(a.month-b.month)||String(a.carrier).localeCompare(b.carrier)).map(x=>'<tr><td class="l">'+fesc(x.carrier)+'</td><td class="l">'+(MESES[x.month]||x.month)+'</td><td class="pos">'+brl(+x.value||0)+'</td><td class="l muted">'+fesc(x.obs||'')+'</td><td><button class="btn-sm" style="color:#dc2626" onclick="delRecuperacao(\''+x.id+'\')">🗑️</button></td></tr>').join('')+
+      '</tbody></table>') : '<span class="hint">Nenhuma recuperação cadastrada.</span>';
+  }
+}
+function addRecuperacao(){
+  const carrier=document.getElementById('recCarrier').value;
+  const month=+document.getElementById('recMonth').value;
+  const val=parseFloat(String(document.getElementById('recVal').value).replace(',','.'));
+  const obs=document.getElementById('recObs').value.trim();
+  if(!carrier||!month||!(val>0)){alert('Preencha transportadora, mês e um valor maior que zero.');return;}
+  const rec=store.recuperacoes||[]; rec.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,6),carrier:carrier,month:month,value:Math.round(val*100)/100,obs:obs});
+  store.recuperacoes=rec;
+  document.getElementById('recVal').value=''; document.getElementById('recObs').value='';
+  renderRecuperacoes(); render(); try{autoBackup();}catch(e){}
+}
+function delRecuperacao(id){
+  store.recuperacoes=(store.recuperacoes||[]).filter(x=>x.id!==id);
+  renderRecuperacoes(); render(); try{autoBackup();}catch(e){}
+}
 function enriched(){
   const q=store.quotes;
   return store.rows.map(r=>{
@@ -1820,16 +1865,19 @@ function render(){
   const withCot=rows.filter(r=>r.cotacao!=null);
   const overcharge=withCot.filter(r=>r.cotVsCte<0);
   const totalOver=Math.abs(sum(overcharge,'cotVsCte'));
-  const lucroTot=sum(rows,'lucro');
+  const lucroNotas=sum(rows,'lucro');
+  const recTot=recTotalForMonths(new Set(rows.map(r=>r.month)));
+  const lucroTot=lucroNotas+recTot;
   const totalCte=sum(rows,'cte');
   const spct=v=>(totalCte>0?(v/totalCte*100).toFixed(1).replace('.',',')+'%':'—');
   const prejuizo=rows.filter(r=>r.lucro<0);
+  const lucroSub=(recTot>0?('inclui '+brl(recTot)+' recuperado · '):'')+prejuizo.length+' em prejuízo · '+spct(lucroTot)+' do CT-e';
   const kpis=[
     {lbl:'Notas (no filtro)',val:rows.length,sub:withCot.length+' com cotação'},
     {lbl:'Σ Cobrado do cliente',val:brl(sum(rows,'tms'))},
     {lbl:'Σ Transportadora (CT-e)',val:brl(sum(rows,'cte'))},
     {lbl:'Cobrança a mais da transportadora',val:brl(totalOver),cls:'bad',sub:overcharge.length+' notas · '+spct(totalOver)+' do CT-e'},
-    {lbl:'Σ Lucro (cliente − transp.)',val:brl(lucroTot),cls:lucroTot>=0?'good':'bad',sub:prejuizo.length+' em prejuízo · '+spct(lucroTot)+' do CT-e'},
+    {lbl:'Σ Lucro (cliente − transp.)',val:brl(lucroTot),cls:lucroTot>=0?'good':'bad',sub:lucroSub},
   ];
   document.getElementById('kpis').innerHTML=kpis.map(k=>`<div class="kpi"><div class="lbl">${k.lbl}</div><div class="val ${k.cls||''}">${k.val}</div><div class="sub">${k.sub||''}</div></div>`).join('');
   rows.sort((a,b)=>{let x=a[sortK],y=b[sortK];if(x==null)x=1e12;if(y==null)y=1e12;if(typeof x==='string')return sortDir*x.localeCompare(y);return sortDir*(x-y);});
@@ -1844,7 +1892,7 @@ function render(){
   drawChart(rows);
   renderReport(rows);
   renderCteCustos(rows);
-  renderCubFactors();
+  renderCubFactors();renderRecuperacoes();
   const u=store.updated;document.getElementById('updBadge').textContent=u?('Atualizado '+fmtDate(u)):'Nunca atualizado';
 }
 function reportBy(rows,key){
@@ -1881,7 +1929,7 @@ function exportReport(){
 function drawChart(rows){
   const months=[...new Set(rows.map(r=>r.month))].sort((a,b)=>a-b);
   const over=months.map(m=>Math.abs(rows.filter(r=>r.month===m&&r.cotVsCte!=null&&r.cotVsCte<0).reduce((s,r)=>s+r.cotVsCte,0)));
-  const lucro=months.map(m=>rows.filter(r=>r.month===m).reduce((s,r)=>s+r.lucro,0));
+  const lucro=months.map(m=>rows.filter(r=>r.month===m).reduce((s,r)=>s+r.lucro,0)+recForMonth(m));
   const labels=months.map(m=>MESES[m]);
   if(chart)chart.destroy();
   chart=new Chart(document.getElementById('chart'),{type:'bar',data:{labels,datasets:[{label:'Transportadora cobrou a mais',data:over,backgroundColor:'#ff5d6c'},{label:'Lucro (cliente − transp.)',data:lucro,backgroundColor:'#39d98a'}]},options:{responsive:true,plugins:{legend:{labels:{color:'#9aa3b2'}}},scales:{x:{ticks:{color:'#9aa3b2'},grid:{color:'#20242e'}},y:{ticks:{color:'#9aa3b2',callback:v=>'R$ '+v.toLocaleString('pt-BR')},grid:{color:'#20242e'}}}}});
@@ -1929,6 +1977,7 @@ async function loadCloud(force){
     if(d.quotes){ const m={...store.quotes}; for(const nf in d.quotes){ m[nf]={...(m[nf]||{}),...d.quotes[nf]}; } store.quotes=m; }
     if(d.rows && (force || !store.rows.length)) store.rows=d.rows;
     if(d.updated) store.updated=d.updated;
+    if(d.recuperacoes) store.recuperacoes=d.recuperacoes;
     applySkuMap();
     ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
     prog('Nuvem carregada: '+store.rows.length+' notas'+(d.updated?(' · atualizado '+fmtDate(d.updated)):'')+'.');
