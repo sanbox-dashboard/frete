@@ -197,6 +197,7 @@
       <div class="spacer"></div>
       <button class="alt" onclick="exportXLSX()">⬇ Exportar Excel (filtro atual)</button>
       <button onclick="exportCSV()">⬇ CSV</button>
+      <label class="btn-import" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;background:var(--wh);border:1px solid var(--bd);color:var(--tx);border-radius:8px;padding:8px 13px;font:800 .72rem 'Nunito'" title="Reimportar o Excel/CSV exportado com campos editados — atualiza por NF + CT-e">⬆ Importar (atualizar)<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importPainel(this)"></label>
     </div>
   </div>
 
@@ -1950,6 +1951,64 @@ function exportCSV(){
   const lines=[head.join(';')].concat(data.map(o=>head.map(h=>String(o[h]==null?'':o[h]).replace(/;/g,',')).join(';')));
   const blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='conciliacao-frete-2026.csv';a.click();
+}
+// ===== Importar de volta o Excel/CSV do painel e atualizar os campos editados =====
+async function readSheetObjects(file){
+  const name=file.name.toLowerCase();
+  if(name.endsWith('.xlsx')||name.endsWith('.xls')){
+    const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'});
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+  }
+  const text=await file.text();
+  const lines=text.replace(/^﻿/,'').split(/\r?\n/).filter(l=>l.length); if(!lines.length)return [];
+  const hdr=splitSemis(lines[0]);
+  return lines.slice(1).map(l=>{const c=splitSemis(l);const o={};hdr.forEach((h,i)=>o[h]=(c[i]!=null?c[i]:''));return o;});
+}
+function parseDMY(s){ const m=String(s||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if(m)return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'); const m2=String(s||'').match(/^\d{4}-\d{2}-\d{2}/); return m2?m2[0]:''; }
+async function importPainel(input){
+  const files=[...input.files]; if(!files.length)return; const file=files[0]; input.value='';
+  let data; try{ data=await readSheetObjects(file); }catch(e){ alert('Falha ao ler o arquivo: '+e.message); return; }
+  if(!data.length){ alert('Arquivo vazio.'); return; }
+  if(!('NF' in data[0])){ alert('Não parece o Excel exportado do painel (falta a coluna NF). Exporte pelo botão "Exportar Excel", edite e reimporte.'); return; }
+  if(!confirm('Importar '+data.length+' linhas e atualizar os campos editados nas notas correspondentes (por NF + CT-e)? Campos em branco no arquivo NÃO apagam o que já existe.'))return;
+  const rows=store.rows, quotes=store.quotes;
+  const idxC={}, idxN={};
+  rows.forEach((r,i)=>{ const nf=normNF(r.nf); const kc=nf+'|'+String(r.cteNumFech||''); if(!(kc in idxC))idxC[kc]=i; if(!(nf in idxN))idxN[nf]=i; });
+  const numf=v=>{ if(v===''||v==null)return null; return brlNum(v); };
+  let upd=0,cells=0,nomatch=0;
+  for(const o of data){
+    const nf=normNF(o.NF); if(!nf)continue;
+    const cteNum=String(o.CTe_num_relatorio||'').trim();
+    let i=((nf+'|'+cteNum) in idxC)?idxC[nf+'|'+cteNum]:((nf in idxN)?idxN[nf]:undefined);
+    if(i===undefined){ nomatch++; continue; }
+    const r=rows[i]; let ch=false;
+    const isSplit=!!r.cteSplit || String(o.CTe_adicional||'').toUpperCase()==='SIM';
+    const setS=(f,v)=>{ const s=String(v==null?'':v).trim(); if(s!==''&&r[f]!==s){ r[f]=s; ch=true; cells++; } };
+    const setN=(f,v)=>{ const n=numf(v); if(n!=null&&r[f]!==n){ r[f]=n; ch=true; cells++; } };
+    setS('order',o.Pedido);
+    if(String(o.Mes||'').trim()!==''){ const mm=MESES.indexOf(String(o.Mes).trim()); if(mm>0&&r.month!==mm){ r.month=mm; ch=true; cells++; } }
+    setS('carrier',o.Transportadora_original);
+    setN('cte',o.Transportadora_cobrou_CTe);
+    setS('motivo',o.Motivo);
+    setS('sku',o.SKU);
+    setS('prod',o.Produto);
+    setN('cubFech',o.Cubagem_relatorio);
+    if(cteNum&&r.cteNumFech!==cteNum){ r.cteNumFech=cteNum; ch=true; cells++; }
+    if(!isSplit){
+      setN('tms',o.Cobrado_cliente_TMS);
+      const q={...(quotes[nf]||{})}; let qch=false;
+      const qs=(k,v)=>{ const s=String(v==null?'':v).trim(); if(s!==''&&q[k]!==s){ q[k]=s; qch=true; cells++; } };
+      qs('canal',o.Canal); qs('cep',o.CEP); qs('cidade',o.Cidade); qs('uf',o.UF);
+      const pd=parseDMY(o.Data_pedido); if(pd&&String(q.pedidoData||'').slice(0,10)!==pd){ q.pedidoData=pd; qch=true; cells++; }
+      const cot=numf(o.Cotacao); if(cot!=null&&q.cotacao!==cot){ q.cotacao=cot; qch=true; cells++; }
+      const qid=String(o.ID_Cotacao||'').trim(); if(qid&&q.quote_id!==qid){ q.quote_id=qid; qch=true; cells++; }
+      if(qch){ quotes[nf]=q; ch=true; }
+    }
+    if(ch)upd++;
+  }
+  store.rows=rows; store.quotes=quotes; applySkuMap();
+  prog('Importação concluída: '+upd+' linhas atualizadas ('+cells+' campos). '+(nomatch?(nomatch+' linhas do arquivo sem correspondência (NF/CT-e não encontrados).'):'Tudo casou.'));
+  render(); await autoBackup();
 }
 
 document.querySelectorAll('#tbl th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir*=-1;else{sortK=k;sortDir=1;}render();});
