@@ -140,6 +140,7 @@
       <button id="btnForce" onclick="forceRecalc()">🔄 Recalcular cotações (filtro)</button>
       <button id="btnCte" onclick="atualizarCTe()">🚚 Atualizar CT-e (filtro)</button>
       <button id="btnFrete" onclick="corrigirFreteExibido()">💰 Puxar cobrado do cliente (Kondado)</button>
+      <button id="btnAmz" onclick="recarregarRegrasAmazon()">🔁 Recarregar regras Amazon</button>
       <button id="btnKondado" onclick="completarPedidosKondado()">🧾 Completar pedidos/SKU (Kondado)</button>
       <button id="btnStop" onclick="STOP=true" disabled>■ Parar</button>
       <div class="spacer"></div>
@@ -980,13 +981,20 @@ function amzNum(v){ if(v==null)return null; let s=String(v).replace(/[^\d.,-]/g,
 function amzDate(v){ const s=String(v||'').trim(); let m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if(m)return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'); m=s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m)return s.slice(0,10); return ''; }
 async function loadAmazonRules(){
   try{
-    const u='https://sheets.googleapis.com/v4/spreadsheets/'+AMZ_SHEET_ID+'/values/'+encodeURIComponent(AMZ_SHEET_TAB)+'!A2:G1000?key=AIzaSyCpFaibN_ct8r2ywjIlKByvZkxok5ytqXI';
-    const r=await fetch(u); if(!r.ok)return 0;
+    const u='https://sheets.googleapis.com/v4/spreadsheets/'+AMZ_SHEET_ID+'/values/'+encodeURIComponent(AMZ_SHEET_TAB)+'!A2:G1000?key=AIzaSyCpFaibN_ct8r2ywjIlKByvZkxok5ytqXI&_='+Date.now();
+    const r=await fetch(u,{cache:'no-store'}); if(!r.ok)return 0;
     const j=await r.json(); const vals=j.values||[]; const rules=[];
     for(const row of vals){ const s=String((row[0]||'')).trim(); if(!s)continue; const i=amzDate(row[5]),f=amzDate(row[6]); if(!i||!f)continue; rules.push({s:s,sp:amzNum(row[1]),mg:amzNum(row[2]),es:amzNum(row[3]),rj:amzNum(row[4]),i:i,f:f}); }
     if(rules.length)AMZ_RULES=rules;
     return rules.length;
   }catch(e){ return 0; }
+}
+async function recarregarRegrasAmazon(){
+  toggleBusy(true); prog('Recarregando regras de frete fixo da Amazon (planilha ao vivo)...');
+  const n=await loadAmazonRules();
+  if(n){ render(); prog('Regras Amazon recarregadas: '+n+' regras da planilha. O "Cobrado do cliente" da Amazon já reflete os novos valores no filtro atual.'); }
+  else{ prog('Não consegui ler a planilha da Amazon — verifique se ela continua pública ("Qualquer pessoa com o link → Leitor").'); }
+  toggleBusy(false);
 }
 function freteOverride(canal,uf,pedidoData,skuStr){
   if(!canal||!/amazon/i.test(canal))return null;
@@ -1598,7 +1606,7 @@ async function atualizarCTe(){
   }
   toggleBusy(false);setBar(0);
 }
-function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnFrete','btnCte','btnRepair','btnKondado'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
+function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnFrete','btnCte','btnAmz','btnRepair','btnKondado'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
 
 function backupData(){return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:store.rows,quotes:store.quotes,recuperacoes:store.recuperacoes};}
 async function ensurePerm(h,mode='readwrite'){ if(!h)return false; const o={mode}; if((await h.queryPermission(o))==='granted')return true; if((await h.requestPermission(o))==='granted')return true; return false; }
