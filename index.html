@@ -1002,12 +1002,18 @@ function freteOverride(canal,uf,pedidoData,skuStr){
   if(!col)return null;
   const day=(pedidoData||'').slice(0,10); if(!day)return null;
   const skus=(skuStr||'').split(',').map(s=>s.trim()).filter(Boolean); if(!skus.length)return null;
-  const hits=[];
-  for(const r of (AMZ_RULES||FRETE_RULES)){ if(skus.indexOf(r.s)<0)continue; if(r[col]==null)continue; if(day>=r.i&&day<=r.f)hits.push(r[col]); }
-  const uniq=[...new Set(hits)];
+  const rules=(AMZ_RULES||FRETE_RULES);
+  const vals=[];
+  for(const sku of skus){
+    let chosen=null;
+    for(const r of rules){ if(r.s===sku && day>=r.i && day<=r.f) chosen=r; } // última linha da planilha que casa vence
+    if(!chosen) return null;             // SKU sem regra Amazon nesse período → usa o valor da NF
+    if(chosen[col]==null) return null;   // valor em branco na planilha p/ esse estado → não substitui, usa o valor da NF
+    vals.push(chosen[col]);
+  }
+  const uniq=[...new Set(vals)];
   if(uniq.length===1)return {val:uniq[0]};
-  if(uniq.length>1)return {ambiguous:true};
-  return null;
+  return {ambiguous:true};               // SKUs diferentes com valores diferentes
 }
 
 // Olist ERP = pedidos da Amazon → normaliza o canal (também faz a tabela de frete fixo Amazon valer)
