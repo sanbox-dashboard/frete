@@ -2085,11 +2085,28 @@ async function onRessarcFile(input){
   const merged={...store.ressarc}; let novos=0; for(const id in fileMap){ if(!(id in merged))novos++; merged[id]=fileMap[id]; }
   store.ressarc=merged;
   document.getElementById('ressarcInfo').textContent=Object.keys(fileMap).length+' pedidos neste arquivo · '+Object.keys(merged).length+' salvos no total ('+novos+' novos).';
-  renderRessarc(); try{autoBackup();}catch(e){}
+  try{autoBackup();}catch(e){}
+  corrigirPedidosRessarc(); // corrige nº de pedido errado pela NF automaticamente e renderiza
 }
 function limparRessarc(){
   if(!confirm('Apagar TODAS as planilhas de ressarcimento salvas no sistema? Isso não afeta as notas, só a conferência da Amazon.'))return;
   store.ressarc={}; renderRessarc(); try{autoBackup();}catch(e){}
+}
+// Correção AUTOMÁTICA do nº do pedido (que veio errado, ex.: id_pedido) pela NF, usando a planilha de notas (NF->pedido).
+// Só corrige os pedidos reconhecidos que estão SEM ressarcimento e cujo pedido correto EXISTE no Seller Central salvo. Roda sozinho.
+let RESSARC_NF2ORD=null;
+async function corrigirPedidosRessarc(){
+  const map=store.ressarc||{}; if(!Object.keys(map).length){ renderRessarc(); return; }
+  const recon=filtered().filter(r=>r.tmsOrig!=null && !r.cteSplit);
+  const alvo=recon.filter(r=>{const o=String(r.order||'').trim(); return !o || !(o in map);});
+  if(!alvo.length){ renderRessarc(); return; }
+  try{
+    if(!RESSARC_NF2ORD){ const n2=await gsBatch(NOTAS2_ID,'tinyerp_notas_detalhes',['C2:C','BI2:BI']); const c2=n2[0]||[],p2=n2[1]||[]; RESSARC_NF2ORD={}; for(let i=0;i<c2.length;i++){ const k=normNF(c2[i]); if(!k)continue; const p=String(p2[i]||'').trim(); if(p&&!(k in RESSARC_NF2ORD))RESSARC_NF2ORD[k]=p; } }
+    let fixed=0;
+    for(const r of alvo){ const correct=RESSARC_NF2ORD[normNF(r.nf)]; if(correct && (correct in map) && String(r.order||'')!==correct){ r.order=correct; markEdit(r,'order'); fixed++; } }
+    if(fixed){ store.rows=store.rows; render(); try{await autoBackup();}catch(e){} }
+  }catch(e){}
+  renderRessarc();
 }
 function renderRessarc(){
   const map=store.ressarc||{};
@@ -2196,7 +2213,7 @@ async function boot(){
 }
 boot();
 (function(){function ck(){const c=document.getElementById("clock");if(c)c.textContent=new Date().toLocaleTimeString("pt-BR");}ck();setInterval(ck,1000);})();
-function showTab(id,btn){document.querySelectorAll(".tabpanel").forEach(p=>{p.style.display="none";});document.getElementById("tab-"+id).style.display="";document.querySelectorAll(".tabbar .tab").forEach(t=>t.classList.remove("on"));btn.classList.add("on");if(id==='ressarc'){try{renderRessarc();}catch(e){}}}
+function showTab(id,btn){document.querySelectorAll(".tabpanel").forEach(p=>{p.style.display="none";});document.getElementById("tab-"+id).style.display="";document.querySelectorAll(".tabbar .tab").forEach(t=>t.classList.remove("on"));btn.classList.add("on");if(id==='ressarc'){try{corrigirPedidosRessarc();}catch(e){}}}
 
 // ===== Edição / exclusão manual de linhas =====
 let EDIT_NF=null;
