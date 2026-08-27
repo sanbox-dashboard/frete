@@ -1838,7 +1838,7 @@ function enriched(){
     const prodStr=r.prod||(skm?skm.prod:'')||'';
     let tms=r.tms,tmsOrig=null,tmsAmbig=false;
     const _canal=mapCanal(cq.canal);
-    const ov=freteOverride(_canal,cq.uf,cq.pedidoData,skuStr);
+    const ov=(/devolu/i.test(String(r.motivo||'')))?null:freteOverride(_canal,cq.uf,cq.pedidoData,skuStr); // Motivo devolução: não aplica frete fixo Amazon, mantém o valor da NF
     if(ov){ if(ov.ambiguous)tmsAmbig=true; else {tmsOrig=r.tms;tms=ov.val;} }
     if(r.cteSplit){ tms=0; tmsOrig=null; tmsAmbig=false; cot=null; } // linha secundária de CT-e: só conta o CT-e, sem duplicar cobrado/cotação
     const _grp=carrierGroup(r.carrier); const _vols=cq.vols||[]; const _peso=_vols.reduce(function(x,v){return x+(v.p||0);},0); const _v0=_vols[0]; const _dims=_v0?('L:'+_v0.w+' A:'+_v0.h+' P:'+_v0.l):''; const _fat=cubFactor(_grp); const _cub=_vols.length?_vols.reduce(function(x,v){return x+((v.w/100)*(v.h/100)*(v.l/100)*_fat);},0):null; const _cubF=(r.cubFech!=null)?r.cubFech:null; const _cdiv=(_cubF!=null&&_cub!=null&&_cubF>_cub*1.05); const _cdivTxt=_cdiv?(_cubF.toLocaleString('pt-BR',{maximumFractionDigits:2})+' (+'+(_cubF-_cub).toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg)'):''; return {...r,grupo:_grp,cotacao:cot,peso:_peso,dimsStr:_dims,cubagem:_cub,pesoAlerta:(_cub!=null&&_peso>_cub),cteNumFech:r.cteNumFech||'',cubFech:_cubF,cubDiverg:_cdiv,cubDivergTxt:_cdivTxt,approx:cq.approx||false,canal:_canal,cep:cq.cep||'',cidade:cq.cidade||'',uf:cq.uf||'',pedidoData:cq.pedidoData||'',quoteId:cq.quote_id||'',cotVsCte:(cot==null)?null:(cot-r.cte),sku:skuStr,produto:prodStr,tms:tms,tmsOrig:tmsOrig,tmsAmbig:tmsAmbig,lucro:(tms-r.cte),motivo:r.motivo||'',cteSplit:!!r.cteSplit};
