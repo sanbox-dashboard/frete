@@ -971,9 +971,13 @@ renderPrazos();
       <p class="hint" style="margin-bottom:8px">Sobe a planilha do <b>Seller Central</b> (com <code>order_id</code> e <code>reembolso_amazon</code>). Só entram os pedidos <b>reconhecidos na planilha de frete fixo Amazon</b> (onde o frete negociado se aplica). Respeita o filtro de mês/datas da aba Conciliação. <b>Recebido</b> = ressarcido pela Amazon + cobrado original do cliente; se ficar abaixo do negociado, aponto o que falta cobrar.</p>
       <input type="file" id="ressarcInput" accept=".xlsx,.xls,.csv" onchange="onRessarcFile(this)" style="width:auto">
       <span id="ressarcInfo" class="hint" style="margin-left:8px"></span>
-      <div class="row" style="margin-top:12px;align-items:flex-end;gap:14px;flex-wrap:wrap">
-        <div><label class="hint">Considerar pedidos até (data do pedido)</label><br><input type="date" id="ressarcAte" onchange="renderRessarc()"></div>
-        <a href="#" class="hint" style="color:var(--or)" onclick="document.getElementById('ressarcAte').value='';renderRessarc();return false;">limpar data</a>
+      <p class="hint" style="margin:12px 0 4px">Filtros próprios (independentes da aba Conciliação):</p>
+      <div class="row" style="align-items:flex-end;gap:14px;flex-wrap:wrap">
+        <div><label class="hint">Mês (data do pedido)</label><br><select id="rMonth" onchange="renderRessarc()"><option value="all">Todos</option></select></div>
+        <div><label class="hint">De</label><br><input type="date" id="rDe" onchange="renderRessarc()"></div>
+        <div><label class="hint">Até</label><br><input type="date" id="rAte" onchange="renderRessarc()"></div>
+        <div style="flex:1;min-width:180px"><label class="hint">Buscar (pedido / NF / SKU / UF)</label><br><input id="rSearch" oninput="renderRessarc()" placeholder="digite..." style="width:100%"></div>
+        <a href="#" class="hint" style="color:var(--or)" onclick="['rDe','rAte','rSearch'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});const m=document.getElementById('rMonth');if(m)m.value='all';renderRessarc();return false;">limpar</a>
         <div class="spacer"></div>
         <button onclick="limparRessarc()">🗑 Limpar planilhas salvas</button>
       </div>
@@ -2092,32 +2096,32 @@ function limparRessarc(){
   if(!confirm('Apagar TODAS as planilhas de ressarcimento salvas no sistema? Isso não afeta as notas, só a conferência da Amazon.'))return;
   store.ressarc={}; renderRessarc(); try{autoBackup();}catch(e){}
 }
-// Correção AUTOMÁTICA do nº do pedido (que veio errado, ex.: id_pedido) pela NF, usando a planilha de notas (NF->pedido).
-// Só corrige os pedidos reconhecidos que estão SEM ressarcimento e cujo pedido correto EXISTE no Seller Central salvo. Roda sozinho.
+// Correção AUTOMÁTICA do nº do pedido: reconhecidos (frete fixo Amazon) com pedido em formato id_pedido (só dígitos) -> corrige pela NF (nº Amazon 70x-...). Roda sozinho, independente do filtro da conciliação e do Seller Central.
 let RESSARC_NF2ORD=null;
 async function corrigirPedidosRessarc(){
-  const map=store.ressarc||{}; if(!Object.keys(map).length){ renderRessarc(); return; }
-  // reconhecidos no filtro (enriched = cópias, só p/ SABER quem casar) que estão SEM ressarcimento
-  const enrSem=filtered().filter(r=>r.tmsOrig!=null && !r.cteSplit && (()=>{const o=String(r.order||'').trim();return !o||!(o in map);})());
-  const alvoNFs=new Set(enrSem.map(r=>String(r.nf)));
+  const enr=enriched().filter(r=>r.tmsOrig!=null && !r.cteSplit);
+  const alvoNFs=new Set(enr.filter(r=>/^\d+$/.test(String(r.order||'').trim())).map(r=>String(r.nf)));
   if(!alvoNFs.size){ renderRessarc(); return; }
   try{
     if(!RESSARC_NF2ORD){ const n2=await gsBatch(NOTAS2_ID,'tinyerp_notas_detalhes',['C2:C','BI2:BI']); const c2=n2[0]||[],p2=n2[1]||[]; RESSARC_NF2ORD={}; for(let i=0;i<c2.length;i++){ const k=normNF(c2[i]); if(!k)continue; const p=String(p2[i]||'').trim(); if(p&&!(k in RESSARC_NF2ORD))RESSARC_NF2ORD[k]=p; } }
     let fixed=0;
-    for(const r of store.rows){ // altera as linhas REAIS
+    for(const r of store.rows){
       if(!alvoNFs.has(String(r.nf)))continue;
       const correct=RESSARC_NF2ORD[normNF(r.nf)];
-      if(correct && (correct in map) && String(r.order||'')!==correct){ r.order=correct; markEdit(r,'order'); fixed++; }
+      if(correct && String(correct).indexOf('-')>=0 && String(r.order||'')!==correct){ r.order=correct; markEdit(r,'order'); fixed++; }
     }
     if(fixed){ store.rows=store.rows; render(); try{await autoBackup();}catch(e){} }
-    const info=document.getElementById('ressarcInfo'); if(info&&fixed)info.textContent=fixed+' nºs de pedido corrigidos pela NF (agora casam com o Seller Central).';
+    const info=document.getElementById('ressarcInfo'); if(info&&fixed)info.textContent=fixed+' nºs de pedido corrigidos pela NF (id_pedido → nº Amazon).';
   }catch(e){}
   renderRessarc();
 }
 function renderRessarc(){
   const map=store.ressarc||{};
-  const ate=(document.getElementById('ressarcAte')&&document.getElementById('ressarcAte').value)||'';
-  const recon=filtered().filter(r=>r.tmsOrig!=null && !r.cteSplit); // reconhecidos = frete fixo Amazon aplicado
+  const mf=(document.getElementById('rMonth')||{}).value||'all';
+  const de=(document.getElementById('rDe')||{}).value||'';
+  const ate=(document.getElementById('rAte')||{}).value||'';
+  const q=(((document.getElementById('rSearch')||{}).value)||'').trim().toLowerCase();
+  const recon=enriched().filter(r=>r.tmsOrig!=null && !r.cteSplit); // reconhecidos = frete fixo Amazon aplicado (NÃO usa o filtro da Conciliação)
   const byOrder={};
   for(const r of recon){ const oid=String(r.order||'').trim(); if(!oid)continue; const g=byOrder[oid]||(byOrder[oid]={order:oid,nf:r.nf,sku:r.sku||'',uf:r.uf||'',data:'',negociado:0,orig:0,cte:0}); g.negociado+=(r.tms||0); g.orig+=(r.tmsOrig||0); g.cte+=(r.cte||0); if(!g.sku&&r.sku)g.sku=r.sku; if(!g.data&&r.pedidoData)g.data=String(r.pedidoData).slice(0,10); }
   let list=Object.values(byOrder).map(g=>{
@@ -2129,21 +2133,29 @@ function renderRessarc(){
     const coberturaDiff=Math.round((recebido-g.cte)*100)/100;
     return {...g,data,reembolso,temReemb,recebido,falta,status,coberturaDiff,cobre:recebido>=g.cte};
   });
-  if(ate) list=list.filter(x=>x.data && x.data<=ate);
+  // popular o dropdown de mês (meses presentes)
+  const msel=document.getElementById('rMonth');
+  if(msel){ const mset=[...new Set(list.map(x=>(x.data&&x.data.length>=7)?(+x.data.slice(5,7)):0).filter(m=>m>0))].sort((a,b)=>a-b); if(msel.dataset.count!=mset.length){ const cur=msel.value; msel.innerHTML='<option value="all">Todos</option>'+mset.map(m=>`<option value="${m}">${MESES[m]}/${YEAR}</option>`).join(''); if(cur)msel.value=cur; msel.dataset.count=mset.length; } }
+  // filtros PRÓPRIOS da aba
+  if(mf!=='all') list=list.filter(x=>{const m=(x.data&&x.data.length>=7)?String(+x.data.slice(5,7)):''; return m===String(mf);});
+  if(de) list=list.filter(x=>x.data&&x.data>=de);
+  if(ate) list=list.filter(x=>x.data&&x.data<=ate);
+  if(q) list=list.filter(x=>(((x.order||'')+' '+(x.nf||'')+' '+(x.sku||'')+' '+(x.uf||'')).toLowerCase().includes(q)));
   list.sort((a,b)=>(b.falta-a.falta)||((a.temReemb?1:0)-(b.temReemb?1:0)));
   window.__ressarcList=list;
   // quebra por mês (data do pedido)
   const byMonth={};
-  for(const x of list){ const m=(x.data&&x.data.length>=7)?(+x.data.slice(5,7)):0; const g=byMonth[m]||(byMonth[m]={m,n:0,neg:0,reemb:0,falta:0}); g.n++; g.neg+=x.negociado; g.reemb+=x.reembolso; g.falta+=x.falta; }
+  for(const x of list){ const m=(x.data&&x.data.length>=7)?(+x.data.slice(5,7)):0; const g=byMonth[m]||(byMonth[m]={m,n:0,neg:0,reemb:0,falta:0,cte:0}); g.n++; g.neg+=x.negociado; g.reemb+=x.reembolso; g.falta+=x.falta; g.cte+=x.cte; }
   const mrows=Object.values(byMonth).sort((a,b)=>a.m-b.m);
-  const mel=document.getElementById('ressarcMes'); if(mel)mel.innerHTML='<div class="tbl-wrap"><table class="mini"><thead><tr><th class="l">Mês</th><th>Pedidos</th><th>Deveria ressarcir</th><th>Ressarcido Amazon</th><th>Falta</th></tr></thead><tbody>'+(mrows.length?mrows.map(g=>'<tr><td class="l">'+(g.m?(MESES[g.m]+'/'+YEAR):'(sem data)')+'</td><td>'+g.n+'</td><td>'+brl(g.neg)+'</td><td class="pos">'+brl(g.reemb)+'</td><td class="'+(g.falta>0.01?'neg':'')+'">'+brl(g.falta)+'</td></tr>').join(''):'<tr><td colspan="5" class="muted" style="text-align:center">Sem dados.</td></tr>')+'</tbody></table></div>';
-  const sumNeg=list.reduce((s,x)=>s+x.negociado,0), sumReemb=list.reduce((s,x)=>s+x.reembolso,0), sumFalta=list.reduce((s,x)=>s+x.falta,0);
+  const mel=document.getElementById('ressarcMes'); if(mel)mel.innerHTML='<div class="tbl-wrap"><table class="mini"><thead><tr><th class="l">Mês</th><th>Pedidos</th><th>Deveria ressarcir</th><th>Ressarcido Amazon</th><th>Falta</th><th>Transportadora (CT-e)</th></tr></thead><tbody>'+(mrows.length?mrows.map(g=>'<tr><td class="l">'+(g.m?(MESES[g.m]+'/'+YEAR):'(sem data)')+'</td><td>'+g.n+'</td><td>'+brl(g.neg)+'</td><td class="pos">'+brl(g.reemb)+'</td><td class="'+(g.falta>0.01?'neg':'')+'">'+brl(g.falta)+'</td><td>'+brl(g.cte)+'</td></tr>').join(''):'<tr><td colspan="6" class="muted" style="text-align:center">Sem dados.</td></tr>')+'</tbody></table></div>';
+  const sumNeg=list.reduce((s,x)=>s+x.negociado,0), sumReemb=list.reduce((s,x)=>s+x.reembolso,0), sumFalta=list.reduce((s,x)=>s+x.falta,0), sumCte=list.reduce((s,x)=>s+x.cte,0);
   const semN=list.filter(x=>!x.temReemb).length, naoCobre=list.filter(x=>!x.cobre).length;
   const kpis=[
     {lbl:'Pedidos negociados',val:list.length,sub:'reconhecidos na planilha'},
     {lbl:'Σ deveria ser ressarcido',val:brl(sumNeg)},
     {lbl:'Σ ressarcido pela Amazon',val:brl(sumReemb),cls:'good'},
     {lbl:'Σ falta ressarcir',val:brl(sumFalta),cls:sumFalta>0.01?'bad':'good',sub:semN+' pedidos sem ressarcimento'},
+    {lbl:'Σ Transportadora cobrou (CT-e)',val:brl(sumCte)},
     {lbl:'Não cobrem o CT-e',val:naoCobre,cls:naoCobre?'bad':'good',sub:'recebido < transportadora'},
   ];
   const kel=document.getElementById('ressarcKpis'); if(kel)kel.innerHTML=kpis.map(k=>`<div class="kpi"><div class="lbl">${k.lbl}</div><div class="val ${k.cls||''}">${k.val}</div><div class="sub">${k.sub||''}</div></div>`).join('');
