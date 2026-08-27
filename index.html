@@ -2097,14 +2097,20 @@ function limparRessarc(){
 let RESSARC_NF2ORD=null;
 async function corrigirPedidosRessarc(){
   const map=store.ressarc||{}; if(!Object.keys(map).length){ renderRessarc(); return; }
-  const recon=filtered().filter(r=>r.tmsOrig!=null && !r.cteSplit);
-  const alvo=recon.filter(r=>{const o=String(r.order||'').trim(); return !o || !(o in map);});
-  if(!alvo.length){ renderRessarc(); return; }
+  // reconhecidos no filtro (enriched = cópias, só p/ SABER quem casar) que estão SEM ressarcimento
+  const enrSem=filtered().filter(r=>r.tmsOrig!=null && !r.cteSplit && (()=>{const o=String(r.order||'').trim();return !o||!(o in map);})());
+  const alvoNFs=new Set(enrSem.map(r=>String(r.nf)));
+  if(!alvoNFs.size){ renderRessarc(); return; }
   try{
     if(!RESSARC_NF2ORD){ const n2=await gsBatch(NOTAS2_ID,'tinyerp_notas_detalhes',['C2:C','BI2:BI']); const c2=n2[0]||[],p2=n2[1]||[]; RESSARC_NF2ORD={}; for(let i=0;i<c2.length;i++){ const k=normNF(c2[i]); if(!k)continue; const p=String(p2[i]||'').trim(); if(p&&!(k in RESSARC_NF2ORD))RESSARC_NF2ORD[k]=p; } }
     let fixed=0;
-    for(const r of alvo){ const correct=RESSARC_NF2ORD[normNF(r.nf)]; if(correct && (correct in map) && String(r.order||'')!==correct){ r.order=correct; markEdit(r,'order'); fixed++; } }
+    for(const r of store.rows){ // altera as linhas REAIS
+      if(!alvoNFs.has(String(r.nf)))continue;
+      const correct=RESSARC_NF2ORD[normNF(r.nf)];
+      if(correct && (correct in map) && String(r.order||'')!==correct){ r.order=correct; markEdit(r,'order'); fixed++; }
+    }
     if(fixed){ store.rows=store.rows; render(); try{await autoBackup();}catch(e){} }
+    const info=document.getElementById('ressarcInfo'); if(info&&fixed)info.textContent=fixed+' nºs de pedido corrigidos pela NF (agora casam com o Seller Central).';
   }catch(e){}
   renderRessarc();
 }
