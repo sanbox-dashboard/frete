@@ -108,6 +108,7 @@
   <button class="tab on" id="tabBtnConc" onclick="showTab('conc',this)">📋 Conciliação de Frete</button>
   <button class="tab" id="tabBtnPrazos" onclick="showTab('prazos',this)">🚚 Prazos de Entrega</button>
   <button class="tab" id="tabBtnFreteV" onclick="showTab('fretev',this)">🚚 Frete (Vendas)</button>
+  <button class="tab" id="tabBtnRessarc" onclick="showTab('ressarc',this)">💸 Ressarcimento Amazon</button>
 </div>
 <div id="tab-conc" class="tabpanel">
 <div class="wrap">
@@ -963,6 +964,27 @@ renderPrazos();
   <iframe id="frFrame" src="frete-vendas.html" title="Frete (Vendas)" style="width:100%;height:calc(100vh - 130px);border:0;background:var(--bg);display:block"></iframe>
 </div>
 
+<div id="tab-ressarc" class="tabpanel" style="display:none">
+  <div class="wrap">
+    <div class="card">
+      <h2>💸 Ressarcimento Amazon <span class="muted">(a Amazon ressarciu os pedidos negociados?)</span></h2>
+      <p class="hint" style="margin-bottom:8px">Sobe a planilha do <b>Seller Central</b> (com <code>order_id</code> e <code>reembolso_amazon</code>). Só entram os pedidos <b>reconhecidos na planilha de frete fixo Amazon</b> (onde o frete negociado se aplica). Respeita o filtro de mês/datas da aba Conciliação. <b>Recebido</b> = ressarcido pela Amazon + cobrado original do cliente; se ficar abaixo do negociado, aponto o que falta cobrar.</p>
+      <input type="file" id="ressarcInput" accept=".xlsx,.xls,.csv" onchange="onRessarcFile(this)" style="width:auto">
+      <span id="ressarcInfo" class="hint" style="margin-left:8px"></span>
+    </div>
+    <div class="grid kpis" id="ressarcKpis"></div>
+    <div class="card">
+      <div class="row" style="margin-bottom:10px;align-items:center"><h2 style="margin:0">Pedidos negociados <span id="ressarcCount" class="muted"></span></h2><div class="spacer"></div><button class="alt" onclick="exportRessarc()">⬇ Exportar Excel</button></div>
+      <div class="tbl-wrap"><table><thead><tr>
+        <th class="l">Pedido</th><th class="l">NF</th><th class="l">SKU</th><th class="l">UF</th><th class="l">Data</th>
+        <th>Negociado (planilha)</th><th>Cobrado orig.</th><th>Ressarcido Amazon</th><th>Recebido total</th><th>Falta ressarcir</th><th class="l">Status</th>
+        <th>Transportadora (CT-e)</th><th>Recebido − CT-e</th><th class="l">Cobre custo?</th>
+      </tr></thead><tbody id="ressarcBody"></tbody></table></div>
+      <p class="hint" style="margin-top:10px"><b>Status:</b> "sem ressarcimento" = pedido não veio na planilha da Amazon (cobrar). "parcial" = ressarciu menos que o negociado. <b>Cobre custo?</b> = Recebido (ressarcimento + cobrado do cliente) cobre o que a transportadora cobrou (CT-e).</p>
+    </div>
+  </div>
+</div>
+
 <script>
 
 const GQL='https://graphql.intelipost.com.br';
@@ -1058,7 +1080,9 @@ const store={
   get cubagem(){try{return JSON.parse(localStorage.getItem('cf.cubagem')||'{}')}catch(e){return{}}},
   set cubagem(v){localStorage.setItem('cf.cubagem',JSON.stringify(v))},
   get recuperacoes(){try{return JSON.parse(localStorage.getItem('cf.recuperacoes')||'[]')}catch(e){return[]}},
-  set recuperacoes(v){localStorage.setItem('cf.recuperacoes',JSON.stringify(v))}
+  set recuperacoes(v){localStorage.setItem('cf.recuperacoes',JSON.stringify(v))},
+  get ressarc(){try{return JSON.parse(localStorage.getItem('cf.ressarc')||'{}')}catch(e){return{}}},
+  set ressarc(v){localStorage.setItem('cf.ressarc',JSON.stringify(v))}
 };
 
 function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('cf-db',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
@@ -2038,6 +2062,59 @@ async function importPainel(input){
   render(); await autoBackup();
 }
 
+// ===== Ressarcimento Amazon: confere se a Amazon ressarciu os pedidos negociados =====
+async function onRessarcFile(input){
+  const files=[...input.files]; if(!files.length)return; const file=files[0]; input.value='';
+  let data; try{ data=await readSheetObjects(file); }catch(e){ alert('Falha ao ler o arquivo: '+e.message); return; }
+  if(!data.length){ alert('Arquivo vazio.'); return; }
+  const keys=Object.keys(data[0]);
+  const kOrder=keys.find(k=>/order.?id|numero.?pedido|pedido/i.test(k))||keys.find(k=>/order/i.test(k));
+  const kReemb=keys.find(k=>/reembolso|ressarc|refund/i.test(k));
+  const kFrete=keys.find(k=>/frete.?cobrado/i.test(k))||'';
+  if(!kOrder||!kReemb){ alert('Não achei as colunas de pedido (order_id) e reembolso (reembolso_amazon) no arquivo.'); return; }
+  const map={};
+  for(const o of data){ const id=String(o[kOrder]||'').trim(); if(!id)continue; const rb=brlNum(o[kReemb]); const fc=kFrete?brlNum(o[kFrete]):null; const cur=map[id]||{reembolso:0,frete:0,n:0}; cur.reembolso+=(rb||0); cur.frete+=(fc||0); cur.n++; map[id]=cur; }
+  store.ressarc=map;
+  document.getElementById('ressarcInfo').textContent=Object.keys(map).length+' pedidos lidos da planilha da Amazon.';
+  renderRessarc();
+}
+function renderRessarc(){
+  const map=store.ressarc||{};
+  const recon=filtered().filter(r=>r.tmsOrig!=null && !r.cteSplit); // reconhecidos = frete fixo Amazon aplicado
+  const byOrder={};
+  for(const r of recon){ const oid=String(r.order||'').trim(); if(!oid)continue; const g=byOrder[oid]||(byOrder[oid]={order:oid,nf:r.nf,sku:r.sku||'',uf:r.uf||'',data:r.pedidoData||'',negociado:0,orig:0,cte:0}); g.negociado+=(r.tms||0); g.orig+=(r.tmsOrig||0); g.cte+=(r.cte||0); if(!g.sku&&r.sku)g.sku=r.sku; }
+  const list=Object.values(byOrder).map(g=>{
+    const rb=map[g.order]; const temReemb=!!rb; const reembolso=rb?rb.reembolso:0;
+    const recebido=reembolso+g.orig;
+    const falta=Math.max(0,Math.round((g.negociado-recebido)*100)/100);
+    const status=!temReemb?'sem':(falta>0.01?'parcial':'ok');
+    const coberturaDiff=Math.round((recebido-g.cte)*100)/100;
+    return {...g,reembolso,temReemb,recebido,falta,status,coberturaDiff,cobre:recebido>=g.cte};
+  }).sort((a,b)=>(b.falta-a.falta)||((a.temReemb?1:0)-(b.temReemb?1:0)));
+  window.__ressarcList=list;
+  const sumNeg=list.reduce((s,x)=>s+x.negociado,0), sumReemb=list.reduce((s,x)=>s+x.reembolso,0), sumFalta=list.reduce((s,x)=>s+x.falta,0);
+  const semN=list.filter(x=>!x.temReemb).length, naoCobre=list.filter(x=>!x.cobre).length;
+  const kpis=[
+    {lbl:'Pedidos negociados',val:list.length,sub:'reconhecidos na planilha'},
+    {lbl:'Σ deveria ser ressarcido',val:brl(sumNeg)},
+    {lbl:'Σ ressarcido pela Amazon',val:brl(sumReemb),cls:'good'},
+    {lbl:'Σ falta ressarcir',val:brl(sumFalta),cls:sumFalta>0.01?'bad':'good',sub:semN+' pedidos sem ressarcimento'},
+    {lbl:'Não cobrem o CT-e',val:naoCobre,cls:naoCobre?'bad':'good',sub:'recebido < transportadora'},
+  ];
+  const kel=document.getElementById('ressarcKpis'); if(kel)kel.innerHTML=kpis.map(k=>`<div class="kpi"><div class="lbl">${k.lbl}</div><div class="val ${k.cls||''}">${k.val}</div><div class="sub">${k.sub||''}</div></div>`).join('');
+  const cc=document.getElementById('ressarcCount'); if(cc)cc.textContent='('+list.length+')';
+  const body=document.getElementById('ressarcBody'); if(!body)return;
+  body.innerHTML=list.slice(0,3000).map(x=>{
+    const st=x.status==='sem'?'<span class="neg">sem ressarcimento</span>':(x.status==='parcial'?'<span class="neg">parcial</span>':'<span class="pos">ok</span>');
+    return `<tr><td class="l">${x.order}</td><td class="l muted">${x.nf}</td><td class="l">${x.sku||'—'}</td><td class="l">${x.uf||'—'}</td><td class="l muted">${fmtDay(x.data)}</td><td>${brl(x.negociado)}</td><td>${x.orig?brl(x.orig):'—'}</td><td class="${x.temReemb?'':'neg'}">${x.temReemb?brl(x.reembolso):'—'}</td><td>${brl(x.recebido)}</td><td class="${x.falta>0.01?'neg':''}">${x.falta>0.01?brl(x.falta):'—'}</td><td>${st}</td><td>${brl(x.cte)}</td><td class="${x.coberturaDiff<0?'neg':'pos'}">${brl(x.coberturaDiff)}</td><td>${x.cobre?'<span class="pos">sim</span>':'<span class="neg">não</span>'}</td></tr>`;
+  }).join('')||'<tr><td colspan="14" class="muted" style="text-align:center;padding:22px">Suba a planilha do Seller Central para conferir os ressarcimentos.</td></tr>';
+}
+function exportRessarc(){
+  const list=window.__ressarcList||[]; if(!list.length){alert('Nada para exportar. Suba a planilha da Amazon primeiro (e confira o filtro de mês).');return;}
+  const data=list.map(x=>({Pedido:x.order,NF:x.nf,SKU:x.sku,UF:x.uf,Data:fmtDay(x.data),Negociado_planilha:x.negociado,Cobrado_original:x.orig,Ressarcido_Amazon:x.reembolso,Sem_ressarcimento:(x.temReemb?'':'SIM'),Recebido_total:x.recebido,Falta_ressarcir:x.falta,Status:x.status,Transportadora_CTe:x.cte,Recebido_menos_CTe:x.coberturaDiff,Cobre_custo:(x.cobre?'SIM':'NAO')}));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),'Ressarcimento Amazon');
+  XLSX.writeFile(wb,'ressarcimento-amazon.xlsx');
+}
 document.querySelectorAll('#tbl th').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortK===k)sortDir*=-1;else{sortK=k;sortDir=1;}render();});
 
 async function autoUpdate(){
@@ -2096,7 +2173,7 @@ async function boot(){
 }
 boot();
 (function(){function ck(){const c=document.getElementById("clock");if(c)c.textContent=new Date().toLocaleTimeString("pt-BR");}ck();setInterval(ck,1000);})();
-function showTab(id,btn){document.querySelectorAll(".tabpanel").forEach(p=>{p.style.display="none";});document.getElementById("tab-"+id).style.display="";document.querySelectorAll(".tabbar .tab").forEach(t=>t.classList.remove("on"));btn.classList.add("on");}
+function showTab(id,btn){document.querySelectorAll(".tabpanel").forEach(p=>{p.style.display="none";});document.getElementById("tab-"+id).style.display="";document.querySelectorAll(".tabbar .tab").forEach(t=>t.classList.remove("on"));btn.classList.add("on");if(id==='ressarc'){try{renderRessarc();}catch(e){}}}
 
 // ===== Edição / exclusão manual de linhas =====
 let EDIT_NF=null;
