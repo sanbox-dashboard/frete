@@ -1637,13 +1637,15 @@ async function loadSkuMap(manual){
 // ===== Completar nº do pedido + SKU via Kondado (Google Sheets) para notas que vieram só com NF =====
 const KDD_ID='1d4ORz_TloSJPBq8LZMrbD7YoPZSUFONExKg1heEBFrU';
 const KDD_KEY='AIzaSyCpFaibN_ct8r2ywjIlKByvZkxok5ytqXI';
-async function kddBatch(tab,ranges){
+const NOTAS2_ID='1AZ2zXJ3KsNfVmm_8eRUSZ6A8bcDxgHSiyakwMUC0HhE'; // aba tinyerp_notas_detalhes: NF (col C) -> nº do pedido (col BI)
+async function gsBatch(id,tab,ranges){
   const qs=ranges.map(r=>'ranges='+encodeURIComponent(tab+'!'+r)).join('&');
-  const u='https://sheets.googleapis.com/v4/spreadsheets/'+KDD_ID+'/values:batchGet?'+qs+'&key='+KDD_KEY;
-  const r=await fetch(u); if(!r.ok)throw new Error('Kondado '+r.status);
+  const u='https://sheets.googleapis.com/v4/spreadsheets/'+id+'/values:batchGet?'+qs+'&key='+KDD_KEY;
+  const r=await fetch(u); if(!r.ok)throw new Error('Sheets '+r.status);
   const j=await r.json();
   return (j.valueRanges||[]).map(vr=>(vr.values||[]).map(x=>x[0]!=null?String(x[0]):''));
 }
+async function kddBatch(tab,ranges){ return gsBatch(KDD_ID,tab,ranges); }
 async function completarPedidosKondado(chained){
   const rows=store.rows;
   if(!rows.length){ if(!chained)alert('Puxe os dados primeiro.'); return; }
@@ -1673,23 +1675,28 @@ async function completarPedidosKondado(chained){
       const reE=/Ref\.?\s*ao\s*pedido\s*n[uú]mero[:\s]*([^\s\r\n]+)/i, reT=/N[oº]\s*Pedido[:\s]*([0-9]+)/i;
       for(let i=0;i<nfCol.length;i++){ const k=normNF(nfCol[i]); if(!k)continue; const o=obsCol[i]||''; const me=o.match(reE),mt=o.match(reT); if(me||mt)nfMap[k]={ecom:me?me[1].trim():'',tiny:mt?mt[1].trim():''}; }
     }
-    const resolveId=r=>{
-      const o=String(r.order||'').trim();
-      if(o) return ord2id[o]||((o in byId)?o:'')||byE[o]||byT[o]||'';
-      const info=nfMap[normNF(r.nf)];
-      if(info){ const e=info.ecom,t=info.tiny; return (e&&(ord2id[e]||byE[e]))||(t&&(ord2id[t]||byT[t]))||''; }
-      return '';
+    // 4) planilha extra: NF (col C) -> nº do pedido ecommerce (col BI) — casa direto, sem texto
+    let nfToOrder={};
+    if(semOrder.length){
+      try{ const n2=await gsBatch(NOTAS2_ID,'tinyerp_notas_detalhes',['C2:C','BI2:BI']); const c2=n2[0]||[],p2=n2[1]||[]; for(let i=0;i<c2.length;i++){ const k=normNF(c2[i]); if(!k)continue; const p=String(p2[i]||'').trim(); if(p&&!(k in nfToOrder))nfToOrder[k]=p; } }catch(e){}
+    }
+    // resolve o nº do pedido (o que vai em r.order) e o id_pedido (para achar o SKU)
+    const resolveOrd=r=>{
+      let order=String(r.order||'').trim();
+      if(!order){ order=nfToOrder[normNF(r.nf)]||''; if(!order){ const info=nfMap[normNF(r.nf)]; if(info)order=info.ecom||info.tiny||''; } }
+      if(!order) return {order:'',id:''};
+      const id=ord2id[order]||((order in byId)?order:'')||byE[order]||byT[order]||'';
+      return {order,id};
     };
     let pedUpd=0,skuUpd=0,sem=0;
     for(const r of alvo){
-      const id=resolveId(r);
-      if(!id){sem++;continue;}
-      if(!r.order||String(r.order).trim()===''){ r.order=id; pedUpd++; }
-      const e=byId[id];
-      if(e){ if((!r.sku||String(r.sku).trim()==='')&&e.skus.length){r.sku=e.skus.join(', ');skuUpd++;} if((!r.prod||String(r.prod).trim()==='')&&e.prods.length)r.prod=e.prods.join(' | '); }
+      const res=resolveOrd(r);
+      if(res.order && (!r.order||String(r.order).trim()==='')){ r.order=res.order; pedUpd++; }
+      if(res.id){ const e=byId[res.id]; if(e){ if((!r.sku||String(r.sku).trim()==='')&&e.skus.length){r.sku=e.skus.join(', ');skuUpd++;} if((!r.prod||String(r.prod).trim()==='')&&e.prods.length)r.prod=e.prods.join(' | '); } }
+      if(!res.order) sem++;
     }
     store.rows=store.rows; applySkuMap();
-    prog('Kondado: '+skuUpd+' SKUs e '+pedUpd+' nºs de pedido preenchidos (de '+alvo.length+' no filtro). '+sem+' sem correspondência no Kondado.');
+    prog('Kondado: '+skuUpd+' SKUs e '+pedUpd+' nºs de pedido preenchidos (de '+alvo.length+' no filtro). '+sem+' sem pedido encontrado (nem no Kondado nem na planilha de notas).');
     if(!chained){ render(); await autoBackup(); }
   }catch(e){ prog('Erro Kondado: '+e.message); }
   if(!chained){ toggleBusy(false); setBar(0); }
