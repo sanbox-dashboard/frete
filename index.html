@@ -971,8 +971,15 @@ renderPrazos();
       <p class="hint" style="margin-bottom:8px">Sobe a planilha do <b>Seller Central</b> (com <code>order_id</code> e <code>reembolso_amazon</code>). Só entram os pedidos <b>reconhecidos na planilha de frete fixo Amazon</b> (onde o frete negociado se aplica). Respeita o filtro de mês/datas da aba Conciliação. <b>Recebido</b> = ressarcido pela Amazon + cobrado original do cliente; se ficar abaixo do negociado, aponto o que falta cobrar.</p>
       <input type="file" id="ressarcInput" accept=".xlsx,.xls,.csv" onchange="onRessarcFile(this)" style="width:auto">
       <span id="ressarcInfo" class="hint" style="margin-left:8px"></span>
+      <div class="row" style="margin-top:12px;align-items:flex-end;gap:14px;flex-wrap:wrap">
+        <div><label class="hint">Considerar pedidos até (data do pedido)</label><br><input type="date" id="ressarcAte" onchange="renderRessarc()"></div>
+        <a href="#" class="hint" style="color:var(--or)" onclick="document.getElementById('ressarcAte').value='';renderRessarc();return false;">limpar data</a>
+        <div class="spacer"></div>
+        <button onclick="limparRessarc()">🗑 Limpar planilhas salvas</button>
+      </div>
     </div>
     <div class="grid kpis" id="ressarcKpis"></div>
+    <div class="card"><h2 style="margin:0 0 10px">Por mês <span class="muted">(pela data do pedido)</span></h2><div id="ressarcMes"></div></div>
     <div class="card">
       <div class="row" style="margin-bottom:10px;align-items:center"><h2 style="margin:0">Pedidos negociados <span id="ressarcCount" class="muted"></span></h2><div class="spacer"></div><button class="alt" onclick="exportRessarc()">⬇ Exportar Excel</button></div>
       <div class="tbl-wrap"><table><thead><tr>
@@ -1644,7 +1651,7 @@ async function atualizarCTe(){
 }
 function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnFrete','btnCte','btnAmz','btnRepair','btnKondado'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
 
-function backupData(){return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:store.rows,quotes:store.quotes,recuperacoes:store.recuperacoes};}
+function backupData(){return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:store.rows,quotes:store.quotes,recuperacoes:store.recuperacoes,ressarc:store.ressarc};}
 async function ensurePerm(h,mode='readwrite'){ if(!h)return false; const o={mode}; if((await h.queryPermission(o))==='granted')return true; if((await h.requestPermission(o))==='granted')return true; return false; }
 async function setBackupFolder(){
   if(!window.showDirectoryPicker){alert('Seu navegador não permite escolher pasta aqui. Use "Salvar backup" — ele baixa o arquivo normalmente.');return;}
@@ -2071,27 +2078,42 @@ async function onRessarcFile(input){
   const kOrder=keys.find(k=>/order.?id|numero.?pedido|pedido/i.test(k))||keys.find(k=>/order/i.test(k));
   const kReemb=keys.find(k=>/reembolso|ressarc|refund/i.test(k));
   const kFrete=keys.find(k=>/frete.?cobrado/i.test(k))||'';
+  const kData=keys.find(k=>/dia.?do.?pedido|data.?pedido|order.?date|purchase.?date/i.test(k))||'';
   if(!kOrder||!kReemb){ alert('Não achei as colunas de pedido (order_id) e reembolso (reembolso_amazon) no arquivo.'); return; }
-  const map={};
-  for(const o of data){ const id=String(o[kOrder]||'').trim(); if(!id)continue; const rb=brlNum(o[kReemb]); const fc=kFrete?brlNum(o[kFrete]):null; const cur=map[id]||{reembolso:0,frete:0,n:0}; cur.reembolso+=(rb||0); cur.frete+=(fc||0); cur.n++; map[id]=cur; }
-  store.ressarc=map;
-  document.getElementById('ressarcInfo').textContent=Object.keys(map).length+' pedidos lidos da planilha da Amazon.';
-  renderRessarc();
+  const fileMap={};
+  for(const o of data){ const id=String(o[kOrder]||'').trim(); if(!id)continue; const rb=brlNum(o[kReemb]); const fc=kFrete?brlNum(o[kFrete]):null; const dt=kData?parseDMY(o[kData]):''; const cur=fileMap[id]||{reembolso:0,frete:0,date:'',n:0}; cur.reembolso+=(rb||0); cur.frete+=(fc||0); if(dt&&!cur.date)cur.date=dt; cur.n++; fileMap[id]=cur; }
+  const merged={...store.ressarc}; let novos=0; for(const id in fileMap){ if(!(id in merged))novos++; merged[id]=fileMap[id]; }
+  store.ressarc=merged;
+  document.getElementById('ressarcInfo').textContent=Object.keys(fileMap).length+' pedidos neste arquivo · '+Object.keys(merged).length+' salvos no total ('+novos+' novos).';
+  renderRessarc(); try{autoBackup();}catch(e){}
+}
+function limparRessarc(){
+  if(!confirm('Apagar TODAS as planilhas de ressarcimento salvas no sistema? Isso não afeta as notas, só a conferência da Amazon.'))return;
+  store.ressarc={}; renderRessarc(); try{autoBackup();}catch(e){}
 }
 function renderRessarc(){
   const map=store.ressarc||{};
+  const ate=(document.getElementById('ressarcAte')&&document.getElementById('ressarcAte').value)||'';
   const recon=filtered().filter(r=>r.tmsOrig!=null && !r.cteSplit); // reconhecidos = frete fixo Amazon aplicado
   const byOrder={};
-  for(const r of recon){ const oid=String(r.order||'').trim(); if(!oid)continue; const g=byOrder[oid]||(byOrder[oid]={order:oid,nf:r.nf,sku:r.sku||'',uf:r.uf||'',data:r.pedidoData||'',negociado:0,orig:0,cte:0}); g.negociado+=(r.tms||0); g.orig+=(r.tmsOrig||0); g.cte+=(r.cte||0); if(!g.sku&&r.sku)g.sku=r.sku; }
-  const list=Object.values(byOrder).map(g=>{
+  for(const r of recon){ const oid=String(r.order||'').trim(); if(!oid)continue; const g=byOrder[oid]||(byOrder[oid]={order:oid,nf:r.nf,sku:r.sku||'',uf:r.uf||'',data:'',negociado:0,orig:0,cte:0}); g.negociado+=(r.tms||0); g.orig+=(r.tmsOrig||0); g.cte+=(r.cte||0); if(!g.sku&&r.sku)g.sku=r.sku; if(!g.data&&r.pedidoData)g.data=String(r.pedidoData).slice(0,10); }
+  let list=Object.values(byOrder).map(g=>{
     const rb=map[g.order]; const temReemb=!!rb; const reembolso=rb?rb.reembolso:0;
+    const data=g.data || (rb&&rb.date?String(rb.date).slice(0,10):'');
     const recebido=reembolso+g.orig;
     const falta=Math.max(0,Math.round((g.negociado-recebido)*100)/100);
     const status=!temReemb?'sem':(falta>0.01?'parcial':'ok');
     const coberturaDiff=Math.round((recebido-g.cte)*100)/100;
-    return {...g,reembolso,temReemb,recebido,falta,status,coberturaDiff,cobre:recebido>=g.cte};
-  }).sort((a,b)=>(b.falta-a.falta)||((a.temReemb?1:0)-(b.temReemb?1:0)));
+    return {...g,data,reembolso,temReemb,recebido,falta,status,coberturaDiff,cobre:recebido>=g.cte};
+  });
+  if(ate) list=list.filter(x=>x.data && x.data<=ate);
+  list.sort((a,b)=>(b.falta-a.falta)||((a.temReemb?1:0)-(b.temReemb?1:0)));
   window.__ressarcList=list;
+  // quebra por mês (data do pedido)
+  const byMonth={};
+  for(const x of list){ const m=(x.data&&x.data.length>=7)?(+x.data.slice(5,7)):0; const g=byMonth[m]||(byMonth[m]={m,n:0,neg:0,reemb:0,falta:0}); g.n++; g.neg+=x.negociado; g.reemb+=x.reembolso; g.falta+=x.falta; }
+  const mrows=Object.values(byMonth).sort((a,b)=>a.m-b.m);
+  const mel=document.getElementById('ressarcMes'); if(mel)mel.innerHTML='<div class="tbl-wrap"><table class="mini"><thead><tr><th class="l">Mês</th><th>Pedidos</th><th>Deveria ressarcir</th><th>Ressarcido Amazon</th><th>Falta</th></tr></thead><tbody>'+(mrows.length?mrows.map(g=>'<tr><td class="l">'+(g.m?(MESES[g.m]+'/'+YEAR):'(sem data)')+'</td><td>'+g.n+'</td><td>'+brl(g.neg)+'</td><td class="pos">'+brl(g.reemb)+'</td><td class="'+(g.falta>0.01?'neg':'')+'">'+brl(g.falta)+'</td></tr>').join(''):'<tr><td colspan="5" class="muted" style="text-align:center">Sem dados.</td></tr>')+'</tbody></table></div>';
   const sumNeg=list.reduce((s,x)=>s+x.negociado,0), sumReemb=list.reduce((s,x)=>s+x.reembolso,0), sumFalta=list.reduce((s,x)=>s+x.falta,0);
   const semN=list.filter(x=>!x.temReemb).length, naoCobre=list.filter(x=>!x.cobre).length;
   const kpis=[
@@ -2141,6 +2163,7 @@ async function loadCloud(force){
     if(d.rows && (force || !store.rows.length)) store.rows=d.rows;
     if(d.updated) store.updated=d.updated;
     if(d.recuperacoes) store.recuperacoes=d.recuperacoes;
+    if(d.ressarc) store.ressarc=d.ressarc;
     applySkuMap();
     ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
     prog('Nuvem carregada: '+store.rows.length+' notas'+(d.updated?(' · atualizado '+fmtDate(d.updated)):'')+'.');
