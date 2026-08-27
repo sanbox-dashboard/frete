@@ -1068,6 +1068,9 @@ async function idbGet(k){const db=await idb();return new Promise((res,rej)=>{con
 const brl=n=>(n==null||isNaN(n))?'—':n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const fmtDate=iso=>{try{return new Date(iso).toLocaleString('pt-BR')}catch(e){return iso}};
 const fmtDay=iso=>{if(!iso)return '—';const s=String(iso).slice(0,10).split('-');return s.length===3?s[2]+'/'+s[1]+'/'+s[0]:String(iso);};
+// Campos editados à mão (modal ou import): nunca são sobrescritos pelas atualizações.
+function markEdit(r,field){ if(!r._edit)r._edit={}; r._edit[field]=1; }
+function isEdited(r,field){ return !!(r._edit&&r._edit[field]); }
 function jwtExp(t){try{return JSON.parse(atob(t.split('.')[1])).exp*1000}catch(e){return 0}}
 function setBar(p){document.getElementById('bar').style.width=(Math.max(0,Math.min(1,p))*100).toFixed(1)+'%';}
 function prog(t){document.getElementById('progressTxt').textContent=t;}
@@ -1172,9 +1175,11 @@ async function completarMes(){
     // 2) preenche campos VAZIOS (canal, CEP, cidade, UF, data, cotacao) - sem sobrescrever
     const cache=store.quotes;
     const isBlank=v=>v===undefined||v===null||v==='';
-    const scope=store.rows.filter(r=>r.nf&&(monthSel?r.month===monthSel:true));
-    const need=scope.filter(r=>{const c=cache[r.nf]||{};return isBlank(c.canal)||isBlank(c.cep)||isBlank(c.cidade)||isBlank(c.uf)||isBlank(c.pedidoData)||c.cotacao===undefined||c.cotacao===null||!(c.vols&&c.vols.length);});
-    prog('Completando '+need.length+' notas'+(monthSel?(' de '+MESES[monthSel]):' (todos os meses)')+' - so campos vazios. Novos: '+added.length);
+    // escopo = notas do FILTRO aplicado (+ as novas recém-puxadas, que ainda não têm canal/UF)
+    const fset=new Set(filtered().map(r=>r.nf)); added.forEach(r=>{if(r.nf)fset.add(r.nf);});
+    const scope=store.rows.filter(r=>r.nf&&fset.has(r.nf));
+    const need=scope.filter(r=>{const c=cache[r.nf]||{};return (isBlank(c.canal)&&!isEdited(r,'canal'))||(isBlank(c.cep)&&!isEdited(r,'cep'))||(isBlank(c.cidade)&&!isEdited(r,'cidade'))||(isBlank(c.uf)&&!isEdited(r,'uf'))||(isBlank(c.pedidoData)&&!isEdited(r,'pedidoData'))||((c.cotacao===undefined||c.cotacao===null)&&!isEdited(r,'cotacao'))||(!(c.vols&&c.vols.length)&&!isEdited(r,'vols'));});
+    prog('Completando '+need.length+' notas do filtro - só campos vazios (não mexe no que foi editado). Novos: '+added.length);
     let done=0,found=0;
     for(const r of need){
       if(STOP)break;
@@ -1182,15 +1187,15 @@ async function completarMes(){
         const d=await fetchOrder(r.nf);
         const e={...(cache[r.nf]||{})};
         if(d){
-          if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}
+          if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0&&!isEdited(r,'tms')){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}
           const ec=d.end_customer||{};
-          if(isBlank(e.canal)||e.canal==='(sem dados)') e.canal=mapCanal(d.sales_channel||d.sales_channel_name)||'(sem canal)';
-          if(isBlank(e.cep)) e.cep=ec.shipping_zip_code||d.destination_zip_code||'';
-          if(isBlank(e.cidade)) e.cidade=ec.shipping_city||'';
-          if(isBlank(e.uf)) e.uf=ec.shipping_state_code||'';
-          if(isBlank(e.pedidoData)) e.pedidoData=d.created_iso||d.created||'';
-          if(d.shipment_order_volume_array&&d.shipment_order_volume_array.length){e.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
-          if(hasTok && (e.cotacao===undefined||e.cotacao===null)){ try{ const hq=await findHistoricalQuote(d); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
+          if((isBlank(e.canal)||e.canal==='(sem dados)')&&!isEdited(r,'canal')) e.canal=mapCanal(d.sales_channel||d.sales_channel_name)||'(sem canal)';
+          if(isBlank(e.cep)&&!isEdited(r,'cep')) e.cep=ec.shipping_zip_code||d.destination_zip_code||'';
+          if(isBlank(e.cidade)&&!isEdited(r,'cidade')) e.cidade=ec.shipping_city||'';
+          if(isBlank(e.uf)&&!isEdited(r,'uf')) e.uf=ec.shipping_state_code||'';
+          if(isBlank(e.pedidoData)&&!isEdited(r,'pedidoData')) e.pedidoData=d.created_iso||d.created||'';
+          if(!isEdited(r,'vols')&&d.shipment_order_volume_array&&d.shipment_order_volume_array.length){e.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
+          if(hasTok && (e.cotacao===undefined||e.cotacao===null) && !isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
         }
         cache[r.nf]=e;
       }catch(err){
@@ -1487,12 +1492,12 @@ async function enrichQuotes(onlyMissing){
       const d=await fetchOrder(r.nf);
       let entry={...(cache[r.nf]||{})};
       if(d){
-        if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}
-        entry.canal=mapCanal(d.sales_channel||d.sales_channel_name)||'(sem canal)';
+        if((!r.tms||r.tms===0)&&d.customer_shipping_costs>0&&!isEdited(r,'tms')){r.tms=d.customer_shipping_costs;r.tmsFonte='intelipost';}
         const ec=d.end_customer||{};
-        entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; entry.cidade=ec.shipping_city||''; entry.uf=ec.shipping_state_code||''; entry.pedidoData=d.created_iso||d.created||''; if(d.shipment_order_volume_array&&d.shipment_order_volume_array.length){entry.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
+        if(!isEdited(r,'canal'))entry.canal=mapCanal(d.sales_channel||d.sales_channel_name)||'(sem canal)';
+        if(!isEdited(r,'cep'))entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; if(!isEdited(r,'cidade'))entry.cidade=ec.shipping_city||''; if(!isEdited(r,'uf'))entry.uf=ec.shipping_state_code||''; if(!isEdited(r,'pedidoData'))entry.pedidoData=d.created_iso||d.created||''; if(!isEdited(r,'vols')&&d.shipment_order_volume_array&&d.shipment_order_volume_array.length){entry.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
         cache[r.nf]=entry;
-        if(hasTok){ try{ const hq=await findHistoricalQuote(d); entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
+        if(hasTok&&!isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d); entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
       }else{ entry.canal=entry.canal||'(sem dados)'; if(hasTok){entry.cotacao=null;entry.v='hist';} }
       cache[r.nf]=entry;
     }catch(e){
@@ -1557,6 +1562,7 @@ async function corrigirFreteExibido(chained){
     const {byOrder,byNF}=await fetchFreteKondadoMap();
     let upd=0,porNF=0,semPed=0;
     for(const r of alvo){
+      if(isEdited(r,'tms'))continue;
       const o=String(r.order||'').trim();
       let v=(o&&(o in byOrder))?byOrder[o]:undefined;
       if(v===undefined){ const k=normNF(r.nf); if(k in byNF){v=byNF[k];porNF++;} }
@@ -1595,10 +1601,10 @@ async function atualizarCTe(){
       for(const it of items){
         if(!fset.has(it.nf))continue;
         const r=byNF[it.nf]; if(!r)continue; scan++;
-        if(r.cteFonte==='fechamento'||r.cteFonte==='xml'){prot++;continue;} // preserva conciliação
+        if(r.cteFonte==='fechamento'||r.cteFonte==='xml'||isEdited(r,'cte')){prot++;continue;} // preserva conciliação e edições manuais
         const novo=it.cte||0;
         if(novo!==(r.cte||0)){r.cte=novo;upd++;}
-        if(it.cteNum)r.cteNum=it.cteNum; if(it.issue)r.issue=it.issue; if(it.carrier)r.carrier=it.carrier;
+        if(it.cteNum&&!isEdited(r,'cteNumFech'))r.cteNum=it.cteNum; if(it.issue)r.issue=it.issue; if(it.carrier&&!isEdited(r,'carrier'))r.carrier=it.carrier;
       }
       setBar((months.indexOf(m)+1)/months.length);
       prog('Atualizando CT-e — '+MESES[m]+' ('+upd+' atualizadas)...');
@@ -1691,8 +1697,8 @@ async function completarPedidosKondado(chained){
     let pedUpd=0,skuUpd=0,sem=0;
     for(const r of alvo){
       const res=resolveOrd(r);
-      if(res.order && (!r.order||String(r.order).trim()==='')){ r.order=res.order; pedUpd++; }
-      if(res.id){ const e=byId[res.id]; if(e){ if((!r.sku||String(r.sku).trim()==='')&&e.skus.length){r.sku=e.skus.join(', ');skuUpd++;} if((!r.prod||String(r.prod).trim()==='')&&e.prods.length)r.prod=e.prods.join(' | '); } }
+      if(res.order && (!r.order||String(r.order).trim()==='') && !isEdited(r,'order')){ r.order=res.order; pedUpd++; }
+      if(res.id){ const e=byId[res.id]; if(e){ if((!r.sku||String(r.sku).trim()==='')&&e.skus.length&&!isEdited(r,'sku')){r.sku=e.skus.join(', ');skuUpd++;} if((!r.prod||String(r.prod).trim()==='')&&e.prods.length&&!isEdited(r,'prod'))r.prod=e.prods.join(' | '); } }
       if(!res.order) sem++;
     }
     store.rows=store.rows; applySkuMap();
@@ -2004,25 +2010,25 @@ async function importPainel(input){
     if(i===undefined){ nomatch++; continue; }
     const r=rows[i]; let ch=false;
     const isSplit=!!r.cteSplit || String(o.CTe_adicional||'').toUpperCase()==='SIM';
-    const setS=(f,v)=>{ const s=String(v==null?'':v).trim(); if(s!==''&&r[f]!==s){ r[f]=s; ch=true; cells++; } };
-    const setN=(f,v)=>{ const n=numf(v); if(n!=null&&r[f]!==n){ r[f]=n; ch=true; cells++; } };
+    const setS=(f,v)=>{ const s=String(v==null?'':v).trim(); if(s!==''&&r[f]!==s){ r[f]=s; ch=true; cells++; markEdit(r,f); } };
+    const setN=(f,v)=>{ const n=numf(v); if(n!=null&&r[f]!==n){ r[f]=n; ch=true; cells++; markEdit(r,f); } };
     setS('order',o.Pedido);
-    if(String(o.Mes||'').trim()!==''){ const mm=MESES.indexOf(String(o.Mes).trim()); if(mm>0&&r.month!==mm){ r.month=mm; ch=true; cells++; } }
+    if(String(o.Mes||'').trim()!==''){ const mm=MESES.indexOf(String(o.Mes).trim()); if(mm>0&&r.month!==mm){ r.month=mm; ch=true; cells++; markEdit(r,'month'); } }
     setS('carrier',o.Transportadora_original);
     setN('cte',o.Transportadora_cobrou_CTe);
     setS('motivo',o.Motivo);
     setS('sku',o.SKU);
     setS('prod',o.Produto);
     setN('cubFech',o.Cubagem_relatorio);
-    if(cteNum&&r.cteNumFech!==cteNum){ r.cteNumFech=cteNum; ch=true; cells++; }
+    if(cteNum&&r.cteNumFech!==cteNum){ r.cteNumFech=cteNum; ch=true; cells++; markEdit(r,'cteNumFech'); }
     if(!isSplit){
       setN('tms',o.Cobrado_cliente_TMS);
       const q={...(quotes[nf]||{})}; let qch=false;
-      const qs=(k,v)=>{ const s=String(v==null?'':v).trim(); if(s!==''&&q[k]!==s){ q[k]=s; qch=true; cells++; } };
+      const qs=(k,v)=>{ const s=String(v==null?'':v).trim(); if(s!==''&&q[k]!==s){ q[k]=s; qch=true; cells++; markEdit(r,k); } };
       qs('canal',o.Canal); qs('cep',o.CEP); qs('cidade',o.Cidade); qs('uf',o.UF);
-      const pd=parseDMY(o.Data_pedido); if(pd&&String(q.pedidoData||'').slice(0,10)!==pd){ q.pedidoData=pd; qch=true; cells++; }
-      const cot=numf(o.Cotacao); if(cot!=null&&q.cotacao!==cot){ q.cotacao=cot; qch=true; cells++; }
-      const qid=String(o.ID_Cotacao||'').trim(); if(qid&&q.quote_id!==qid){ q.quote_id=qid; qch=true; cells++; }
+      const pd=parseDMY(o.Data_pedido); if(pd&&String(q.pedidoData||'').slice(0,10)!==pd){ q.pedidoData=pd; qch=true; cells++; markEdit(r,'pedidoData'); }
+      const cot=numf(o.Cotacao); if(cot!=null&&q.cotacao!==cot){ q.cotacao=cot; qch=true; cells++; markEdit(r,'cotacao'); }
+      const qid=String(o.ID_Cotacao||'').trim(); if(qid&&q.quote_id!==qid){ q.quote_id=qid; qch=true; cells++; markEdit(r,'quote_id'); }
       if(qch){ quotes[nf]=q; ch=true; }
     }
     if(ch)upd++;
@@ -2121,20 +2127,21 @@ function saveEdit(){
   if(isNew){ nf=edGet('ed_newnf').replace(/\D/g,'').replace(/^0+/,''); if(!nf){alert('Informe o número da NF.');return;} if(store.rows.some(x=>String(x.nf)===String(nf))){alert('Já existe uma linha com a NF '+nf+'. Edite a existente.');return;} }
   let rr=store.rows.find(x=>String(x.nf)===String(nf));
   if(!rr){ rr={nf:nf,order:'',month:0,carrier:'',cte:0,tms:0,sku:'',prod:'',inserted:true,manual:true}; store.rows=store.rows.concat([rr]); rr=store.rows.find(x=>String(x.nf)===String(nf)); }
-  const so=edGet('ed_order'); if(so!=='')rr.order=so;
-  const sm=edNum('ed_month'); if(sm!=null)rr.month=sm;
-  const sc=edGet('ed_carrier'); if(sc!=='')rr.carrier=sc;
-  const cte=edNum('ed_cte'); if(cte!=null){rr.cte=cte; if(!rr.cteFonte)rr.cteFonte='manual';}
-  const tms=edNum('ed_tms'); if(tms!=null)rr.tms=tms;
-  rr.sku=edGet('ed_sku'); rr.prod=edGet('ed_prod');
-  const cf=edNum('ed_cubFech'); if(cf!=null)rr.cubFech=cf;
+  const so=edGet('ed_order'); if(so!==''){rr.order=so;markEdit(rr,'order');}
+  const sm=edNum('ed_month'); if(sm!=null){rr.month=sm;markEdit(rr,'month');}
+  const sc=edGet('ed_carrier'); if(sc!==''){rr.carrier=sc;markEdit(rr,'carrier');}
+  const cte=edNum('ed_cte'); if(cte!=null){rr.cte=cte; if(!rr.cteFonte)rr.cteFonte='manual';markEdit(rr,'cte');}
+  const tms=edNum('ed_tms'); if(tms!=null){rr.tms=tms;markEdit(rr,'tms');}
+  const sku=edGet('ed_sku'); rr.sku=sku; if(sku!=='')markEdit(rr,'sku');
+  const prod=edGet('ed_prod'); rr.prod=prod; if(prod!=='')markEdit(rr,'prod');
+  const cf=edNum('ed_cubFech'); if(cf!=null){rr.cubFech=cf;markEdit(rr,'cubFech');}
   // campos da cotação (store.quotes[nf])
   const q={...(store.quotes[nf]||{})};
-  ['canal','cep','cidade','uf'].forEach(k=>{const val=edGet('ed_'+k); if(val!=='')q[k]=val;});
-  const pd=edGet('ed_pedidoData'); if(pd!=='')q.pedidoData=pd;
-  const cot=edNum('ed_cotacao'); if(cot!=null){q.cotacao=cot; if(!q.v)q.v='manual';}
+  ['canal','cep','cidade','uf'].forEach(k=>{const val=edGet('ed_'+k); if(val!==''){q[k]=val;markEdit(rr,k);}});
+  const pd=edGet('ed_pedidoData'); if(pd!==''){q.pedidoData=pd;markEdit(rr,'pedidoData');}
+  const cot=edNum('ed_cotacao'); if(cot!=null){q.cotacao=cot; if(!q.v)q.v='manual';markEdit(rr,'cotacao');}
   const w=edNum('ed_w'),h=edNum('ed_h'),l=edNum('ed_l'),p=edNum('ed_peso');
-  if(w!=null||h!=null||l!=null||p!=null){ const cur=(q.vols&&q.vols[0])||{}; q.vols=[{w:(w!=null?w:cur.w||0),h:(h!=null?h:cur.h||0),l:(l!=null?l:cur.l||0),p:(p!=null?p:cur.p||0)}]; }
+  if(w!=null||h!=null||l!=null||p!=null){ const cur=(q.vols&&q.vols[0])||{}; q.vols=[{w:(w!=null?w:cur.w||0),h:(h!=null?h:cur.h||0),l:(l!=null?l:cur.l||0),p:(p!=null?p:cur.p||0)}]; markEdit(rr,'vols'); }
   const allq=store.quotes; allq[nf]=q; store.quotes=allq;
   store.rows=store.rows;
   closeEdit(); render(); try{autoBackup();}catch(e){}
