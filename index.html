@@ -2022,7 +2022,7 @@ async function readSheetObjects(file){
     return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
   }
   const text=await file.text();
-  const lines=text.replace(/^﻿/,'').split(/\r?\n/).filter(l=>l.length); if(!lines.length)return [];
+  const lines=text.replace(/^﻿/,'').split(/\r\n|\r|\n/).filter(l=>l.length); if(!lines.length)return [];
   const hdr=splitSemis(lines[0]);
   return lines.slice(1).map(l=>{const c=splitSemis(l);const o={};hdr.forEach((h,i)=>o[h]=(c[i]!=null?c[i]:''));return o;});
 }
@@ -2032,17 +2032,28 @@ async function importPainel(input){
   let data; try{ data=await readSheetObjects(file); }catch(e){ alert('Falha ao ler o arquivo: '+e.message); return; }
   if(!data.length){ alert('Arquivo vazio.'); return; }
   if(!('NF' in data[0])){ alert('Não parece o Excel exportado do painel (falta a coluna NF). Exporte pelo botão "Exportar Excel", edite e reimporte.'); return; }
-  if(!confirm('Importar '+data.length+' linhas e atualizar os campos editados nas notas correspondentes (por NF + CT-e)? Campos em branco no arquivo NÃO apagam o que já existe.'))return;
+  if(!confirm('Importar '+data.length+' linhas? Atualiza os campos das notas existentes (por NF + CT-e) e, quando a NF+CT-e NÃO existir no dash, cria um novo lançamento manual. Campos em branco NÃO apagam o que já existe.'))return;
   const rows=store.rows, quotes=store.quotes;
   const idxC={}, idxN={};
   rows.forEach((r,i)=>{ const nf=normNF(r.nf); const kc=nf+'|'+String(r.cteNumFech||''); if(!(kc in idxC))idxC[kc]=i; if(!(nf in idxN))idxN[nf]=i; });
   const numf=v=>{ if(v===''||v==null)return null; return brlNum(v); };
-  let upd=0,cells=0,nomatch=0;
+  let upd=0,cells=0,nomatch=0,novos=0;
   for(const o of data){
     const nf=normNF(o.NF); if(!nf)continue;
     const cteNum=String(o.CTe_num_relatorio||'').trim();
-    let i=((nf+'|'+cteNum) in idxC)?idxC[nf+'|'+cteNum]:((nf in idxN)?idxN[nf]:undefined);
-    if(i===undefined){ nomatch++; continue; }
+    let i;
+    if(cteNum){ i=idxC[nf+'|'+cteNum]; if(i===undefined){ const pi=idxC[nf+'|']; if(pi!==undefined){ i=pi; delete idxC[nf+'|']; } } }
+    else { i=idxN[nf]; }
+    if(i===undefined){
+      // NF+CT-e não existe no dash -> cria NOVO lançamento manual com as infos dele
+      const nfExiste=(nf in idxN); const num=v=>numf(v); const mm=MESES.indexOf(String(o.Mes||'').trim());
+      const nr={nf:nf,order:String(o.Pedido||'').trim(),month:(mm>0?mm:0),carrier:String(o.Transportadora_original||o.Transportadora||'').trim(),cte:(num(o.Transportadora_cobrou_CTe)||0),tms:0,motivo:String(o.Motivo||'').trim(),sku:String(o.SKU||'').trim(),prod:String(o.Produto||'').trim(),cteNumFech:cteNum,cubFech:num(o.Cubagem_relatorio),inserted:true,manual:true,cteFonte:(String(o.Fonte_CTe||'').trim()||'manual'),_edit:{order:1,month:1,carrier:1,cte:1,tms:1,motivo:1,sku:1,prod:1,cteNumFech:1,cubFech:1}};
+      if(nfExiste){ nr.cteSplit=true; } // CT-e adicional de NF já existente: não duplica cobrado/cotação
+      else { const t=num(o.Cobrado_cliente_TMS); if(t!=null)nr.tms=t; const pd=parseDMY(o.Data_pedido), cot=num(o.Cotacao); quotes[nf]={...(quotes[nf]||{}),canal:String(o.Canal||'').trim(),cep:String(o.CEP||'').trim(),cidade:String(o.Cidade||'').trim(),uf:String(o.UF||'').trim(),pedidoData:pd,cotacao:(cot!=null?cot:null),quote_id:String(o.ID_Cotacao||'').trim(),v:'manual'}; Object.assign(nr._edit,{canal:1,cep:1,cidade:1,uf:1,pedidoData:1,cotacao:1}); }
+      rows.push(nr); idxC[nf+'|'+cteNum]=rows.length-1; if(!(nf in idxN))idxN[nf]=rows.length-1; novos++;
+      continue;
+    }
+    if(cteNum) idxC[nf+'|'+cteNum]=i;
     const r=rows[i]; let ch=false;
     const isSplit=!!r.cteSplit || String(o.CTe_adicional||'').toUpperCase()==='SIM';
     const setS=(f,v)=>{ const s=String(v==null?'':v).trim(); if(s!==''&&r[f]!==s){ r[f]=s; ch=true; cells++; markEdit(r,f); } };
@@ -2069,7 +2080,7 @@ async function importPainel(input){
     if(ch)upd++;
   }
   store.rows=rows; store.quotes=quotes; applySkuMap();
-  prog('Importação concluída: '+upd+' linhas atualizadas ('+cells+' campos). '+(nomatch?(nomatch+' linhas do arquivo sem correspondência (NF/CT-e não encontrados).'):'Tudo casou.'));
+  prog('Importação concluída: '+upd+' linhas atualizadas ('+cells+' campos), '+novos+' novos lançamentos criados (NF/CT-e que não existiam no dash).'+(nomatch?(' '+nomatch+' sem correspondência.'):''));
   render(); await autoBackup();
 }
 
