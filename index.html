@@ -147,6 +147,8 @@
       <div class="spacer"></div>
       <button onclick="loadCloud(true)">☁ Carregar da nuvem</button>
       <button class="alt" onclick="cloudSave()">☁ Salvar na nuvem</button>
+      <label class="hint" style="display:inline-flex;align-items:center;gap:5px"><input type="checkbox" id="autoCloud" style="width:auto" onchange="toggleAutoCloud(this)"> auto-salvar na nuvem</label>
+      <span id="cloudStatus" class="hint" style="margin-left:6px"></span>
     </div>
     <div class="progress"><div id="bar"></div></div>
     <div id="progressTxt" class="hint" style="margin-top:8px">Pronto.</div>
@@ -1766,7 +1768,7 @@ async function saveBackup(manual){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;a.click();
   prog('Backup baixado (fallback).');
 }
-async function autoBackup(){ if(dirHandle){ try{await saveBackup(false);}catch(e){} } }
+async function autoBackup(){ if(dirHandle){ try{await saveBackup(false);}catch(e){} } try{scheduleCloudSave();}catch(e){} }
 async function restoreBackup(){
   // Sempre deixa VOCÊ escolher o arquivo (pra poder pegar uma cópia datada com as cotações)
   let text=null;
@@ -2212,20 +2214,55 @@ async function loadCloud(force){
     if(d.ressarc) store.ressarc=d.ressarc;
     applySkuMap();
     ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+    try{CLOUD_BASE=JSON.parse(JSON.stringify(backupData()));}catch(e){}
     prog('Nuvem carregada: '+store.rows.length+' notas'+(d.updated?(' · atualizado '+fmtDate(d.updated)):'')+'.');
     render();
     return true;
   }catch(e){ if(force)alert('Erro ao carregar da nuvem: '+e.message); prog('Falha ao carregar da nuvem: '+e.message); return false; }
 }
-async function cloudSave(){
-  try{
-    prog('Salvando na nuvem (Firebase)... pode levar alguns segundos.');
-    const body=JSON.stringify(JSON.stringify(backupData()));
-    const r=await fetch(FB_URL,{method:'PUT',body});
-    if(!r.ok){ const t=(await r.text()).slice(0,140); alert('Erro '+r.status+' ao salvar no Firebase: '+t); prog('Falha ao salvar na nuvem ('+r.status+').'); return; }
-    prog('✅ Salvo na nuvem: '+store.rows.length+' notas ('+(body.length/1048576).toFixed(1)+' MB). Em outro aparelho, toque em "☁ Carregar da nuvem".');
-  }catch(e){ alert('Erro ao salvar na nuvem: '+e.message); prog('Falha ao salvar na nuvem: '+e.message); }
+// ===== Sincronização multiusuário: merge de 3 vias (base = o que carreguei, mine = local, theirs = nuvem atual) =====
+let CLOUD_BASE=null;
+function _rowKey(r){ return normNF(r.nf)+'|'+String(r.cteNumFech||''); }
+function mergeBackup(base, mine, theirs){
+  const eq=(a,b)=>JSON.stringify(a===undefined?null:a)===JSON.stringify(b===undefined?null:b);
+  base=base||{}; mine=mine||{}; theirs=theirs||{};
+  const bMap={},tMap={},mMap={};
+  (base.rows||[]).forEach(r=>{bMap[_rowKey(r)]=r;});
+  (theirs.rows||[]).forEach(r=>{tMap[_rowKey(r)]=r;});
+  (mine.rows||[]).forEach(r=>{mMap[_rowKey(r)]=r;});
+  const res={}; for(const k in tMap)res[k]=tMap[k];
+  for(const k in mMap){ const m=mMap[k], b=bMap[k]; if(!b||!eq(m,b)) res[k]=m; }
+  for(const k in bMap){ if(!(k in mMap) && (k in res) && eq(tMap[k],bMap[k])) delete res[k]; }
+  const rows=Object.values(res);
+  const quotes={...(theirs.quotes||{})}; const mq=mine.quotes||{}, bq=base.quotes||{};
+  for(const nf in mq){ const m=mq[nf]||{}, b=bq[nf]||{}; const merged={...(quotes[nf]||{})}; for(const f in m){ if(!eq(m[f],b[f])) merged[f]=m[f]; } quotes[nf]=merged; }
+  const recById={}; (theirs.recuperacoes||[]).forEach(x=>{if(x&&x.id)recById[x.id]=x;}); (mine.recuperacoes||[]).forEach(x=>{if(x&&x.id)recById[x.id]=x;});
+  const ressarc={...(theirs.ressarc||{}), ...(mine.ressarc||{})};
+  return {v:2,savedAt:new Date().toISOString(),updated:(mine.updated||theirs.updated||''),rows,quotes,recuperacoes:Object.values(recById),ressarc};
 }
+async function cloudSave(silent){
+  try{
+    if(!silent)prog('Salvando na nuvem (mesclando com o que já está lá)...');
+    let theirs={};
+    try{ const rr=await fetch(FB_URL,{cache:'no-store'}); if(rr.ok){ let raw=await rr.json(); if(raw)theirs=(typeof raw==='string')?JSON.parse(raw):raw; } }catch(e){}
+    const mine=backupData();
+    let merged;
+    try{ merged=mergeBackup(CLOUD_BASE||{rows:[],quotes:{},recuperacoes:[],ressarc:{}}, mine, theirs); }
+    catch(me){ if(!silent)alert('Não salvei: erro ao mesclar com a nuvem ('+me.message+'). Clique "Carregar da nuvem" e tente de novo.'); prog('Falha no merge — não salvei pra não sobrescrever ninguém.'); return; }
+    const body=JSON.stringify(JSON.stringify(merged));
+    const r=await fetch(FB_URL,{method:'PUT',body});
+    if(!r.ok){ const t=(await r.text()).slice(0,140); if(!silent)alert('Erro '+r.status+' ao salvar: '+t); prog('Falha ao salvar na nuvem ('+r.status+').'); return; }
+    store.rows=merged.rows; store.quotes=merged.quotes; store.recuperacoes=merged.recuperacoes; store.ressarc=merged.ressarc; if(merged.updated)store.updated=merged.updated;
+    CLOUD_BASE=JSON.parse(JSON.stringify(merged));
+    applySkuMap(); if(!silent)render();
+    const st=document.getElementById('cloudStatus'); if(st)st.textContent='☁ salvo '+new Date().toLocaleTimeString('pt-BR');
+    if(!silent)prog('✅ Salvo na nuvem (mesclado): '+store.rows.length+' notas. As edições de outras pessoas foram preservadas.');
+  }catch(e){ if(!silent)alert('Erro ao salvar na nuvem: '+e.message); prog('Falha ao salvar na nuvem: '+e.message); }
+}
+function autoCloudOn(){ return localStorage.getItem('cf.autoCloud')!=='0'; }
+let _cloudTimer=null;
+function scheduleCloudSave(){ if(!autoCloudOn())return; clearTimeout(_cloudTimer); const st=document.getElementById('cloudStatus'); if(st)st.textContent='☁ alterações pendentes...'; _cloudTimer=setTimeout(function(){ cloudSave(true); }, 12000); }
+function toggleAutoCloud(cb){ localStorage.setItem('cf.autoCloud', cb.checked?'1':'0'); const st=document.getElementById('cloudStatus'); if(st)st.textContent=cb.checked?'☁ auto-salvar ligado':'☁ auto-salvar desligado'; if(cb.checked)scheduleCloudSave(); }
 async function boot(){
   // Carrega dados do IndexedDB (cota grande). Migra 1x do localStorage antigo, se houver, e libera a cota.
   try{ MEM.rows=(await idbGet('rows'))||[]; }catch(e){ MEM.rows=[]; }
@@ -2233,6 +2270,8 @@ async function boot(){
   try{ const lr=JSON.parse(localStorage.getItem('cf.rows')||'[]'); if(lr.length && !MEM.rows.length){ MEM.rows=lr; await idbSet('rows',lr); } if(localStorage.getItem('cf.rows')!==null) localStorage.removeItem('cf.rows'); }catch(e){}
   try{ const lq=JSON.parse(localStorage.getItem('cf.quotes')||'{}'); if(Object.keys(lq).length && !Object.keys(MEM.quotes).length){ MEM.quotes=lq; await idbSet('quotes',lq); } if(localStorage.getItem('cf.quotes')!==null) localStorage.removeItem('cf.quotes'); }catch(e){}
   if(!MEM.rows.length){ try{ await loadCloud(false); }catch(e){} }
+  try{ if(!CLOUD_BASE)CLOUD_BASE=JSON.parse(JSON.stringify(backupData())); }catch(e){}
+  try{ const ac=document.getElementById('autoCloud'); if(ac){ac.checked=autoCloudOn(); document.getElementById('cloudStatus').textContent=autoCloudOn()?'☁ auto-salvar ligado':'';} }catch(e){}
   if(document.getElementById('apiKey'))document.getElementById('apiKey').value=store.apikey||document.getElementById('apiKey').value;
   tokenStatus();setInterval(tokenStatus,60000);
   try{ await loadAmazonRules(); }catch(e){}
