@@ -140,6 +140,7 @@
       <button class="primary" id="btnComplete" onclick="completarMes()">🔄 Atualizar mês do filtro (novos + campos vazios)</button>
       <button id="btnForce" onclick="forceRecalc()">🔄 Recalcular cotações (filtro)</button>
       <button id="btnCte" onclick="atualizarCTe()">🚚 Atualizar CT-e (filtro)</button>
+      <button id="btnCancel" onclick="zerarCancelados()">🚫 Zerar cobrado de cancelados (filtro)</button>
       <button id="btnFrete" onclick="corrigirFreteExibido()">💰 Puxar cobrado do cliente (Kondado)</button>
       <button id="btnAmz" onclick="recarregarRegrasAmazon()">🔁 Recarregar regras Amazon</button>
       <button id="btnKondado" onclick="completarPedidosKondado()">🧾 Completar pedidos/SKU (Kondado)</button>
@@ -188,6 +189,7 @@
       <div><label>Transportadora (CT-e)</label><details class="msel"><summary id="sCarrier">Transportadora: todas</summary><div class="msel-body" id="lCarrier"></div></details></div>
       <div><label>Canal de vendas</label><details class="msel"><summary id="sCanal">Canal: todas</summary><div class="msel-body" id="lCanal"></div></details></div>
       <div><label>Estado (UF)</label><details class="msel"><summary id="sUf">Estado: todas</summary><div class="msel-body" id="lUf"></div></details></div>
+      <div><label>Motivo</label><details class="msel"><summary id="sMotivo">Motivo: todos</summary><div class="msel-body" id="lMotivo"></div></details></div>
       <div><label>Data pedido — de</label><input type="date" id="fDateFrom" onchange="render()"></div>
       <div><label>até</label><input type="date" id="fDateTo" onchange="render()"></div>
       <div><label>Buscar (NF / pedido / cidade)</label><input id="search" placeholder="digite..." oninput="render()"></div>
@@ -1232,7 +1234,7 @@ async function completarMes(){
           if(isBlank(e.uf)&&!isEdited(r,'uf')) e.uf=ec.shipping_state_code||'';
           if(isBlank(e.pedidoData)&&!isEdited(r,'pedidoData')) e.pedidoData=d.created_iso||d.created||'';
           if(!isEdited(r,'vols')&&d.shipment_order_volume_array&&d.shipment_order_volume_array.length){e.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
-          if(hasTok && (e.cotacao===undefined||e.cotacao===null) && !isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
+          if(hasTok && (e.cotacao===undefined||e.cotacao===null) && !isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d, r.carrier); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
         }
         cache[r.nf]=e;
       }catch(err){
@@ -1362,7 +1364,7 @@ async function aplicarFech(){
   }
   store.rows=rows; store.updated=new Date().toISOString(); applySkuMap();
   FECH=[]; document.getElementById('fechReview').innerHTML=''; document.getElementById('fechInput').value='';
-  ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+  ['fMonth','lCarrier','lCanal','lUf','lMotivo'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
   buildFilters();
   prog('Fechamento aplicado: '+upd+' CT-e corrigidos, '+ins+' notas novas, '+splitN+' linhas de CT-e adicionais (multi-CT-e duplicadas), '+dupN+' com cobrança duplicada.');
   render(); await autoBackup();
@@ -1432,7 +1434,7 @@ async function aplicarXmlFech(){
   }
   store.rows=rows; store.updated=new Date().toISOString(); applySkuMap();
   XMLF=null; document.getElementById('xmlReview').innerHTML=''; document.getElementById('xmlInput').value='';
-  ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+  ['fMonth','lCarrier','lCanal','lUf','lMotivo'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
   prog('XMLs aplicados: '+upd+' NFs atualizadas, '+ins+' novas'+(pend?(' · '+pend+' complementares pendentes (sem original)'):'')+'. Componentes gravados.');
   render(); await autoBackup();
 }
@@ -1488,9 +1490,10 @@ async function quotationsDay(cep,dayStr){
   const j=await r.json(); if(j.errors) throw new Error(j.errors[0].message||'erro');
   return (j.data&&j.data.quotations&&j.data.quotations.items)||[];
 }
-async function findHistoricalQuote(d){
+async function findHistoricalQuote(d, carrier){
   const cep=((d.end_customer&&d.end_customer.shipping_zip_code)||d.destination_zip_code||'').replace(/\D/g,'');
   if(!cep) return {cotacao:null};
+  const grp=carrierGroup(carrier||''); // transportadora da NF (ex.: "Trilog Express")
   const w=(d.shipment_order_volume_array||[]).reduce((s,v)=>s+(v.weight||0),0);
   const day0=(d.created_iso||d.created||'').slice(0,10); if(!day0) return {cotacao:null};
   const ot=new Date(d.created_iso||d.created).getTime();
@@ -1499,19 +1502,22 @@ async function findHistoricalQuote(d){
     const items=await quotationsDay(cep,ymdMinus(day0,back));
     for(const it of items){
       const iw=(it.order&&it.order.volumes||[]).reduce((s,v)=>s+(v.weight||0),0);
-      const costs=(it.logistic_provider&&it.logistic_provider.delivery_methods||[]).map(m=>m.cost).filter(c=>c>0);
-      if(costs.length)all.push({cot:Math.min.apply(null,costs),qid:it.id,dt:Math.abs(new Date(it.created).getTime()-ot),back,wdiff:Math.abs(iw-w)});
+      const methods=(it.logistic_provider&&it.logistic_provider.delivery_methods)||[];
+      let cot=null, mExata=false;
+      if(grp&&grp!=='(sem transportadora)'){ const mm=methods.find(m=>m&&m.cost>0&&carrierGroup(m.name||'')===grp); if(mm){cot=mm.cost;mExata=true;} } // cotação EXATA da transportadora da NF
+      if(cot==null){ const costs=methods.map(m=>m.cost).filter(c=>c>0); if(costs.length)cot=Math.min.apply(null,costs); } // fallback: menor
+      if(cot!=null)all.push({cot:cot,qid:it.id,dt:Math.abs(new Date(it.created).getTime()-ot),back,wdiff:Math.abs(iw-w),mExata:mExata});
     }
-    if(all.some(c=>c.wdiff<=Math.max(3,w*0.05)))break; // já achou match estrito
+    if(all.some(c=>c.wdiff<=Math.max(3,w*0.05)&&c.mExata))break; // achou match estrito COM a transportadora certa
   }
   if(!all.length) return {cotacao:null};
   const strict=all.filter(c=>c.wdiff<=Math.max(3,w*0.05));
   const pool=strict.length?strict:all.filter(c=>c.wdiff<=Math.max(10,w*0.25)); // fallback: peso próximo (±25%)
   if(!pool.length) return {cotacao:null};
-  pool.sort((a,b)=>(a.wdiff-b.wdiff)||(a.dt-b.dt));
+  pool.sort((a,b)=>((b.mExata?1:0)-(a.mExata?1:0))||(a.wdiff-b.wdiff)||(a.dt-b.dt)); // prioriza a cotação da transportadora certa
   const chosen=pool[0];
-  // Cotação = CUSTO DE ENVIO (menor provider_shipping_cost = campo `cost` do GraphQL).
-  return {cotacao:chosen.cot,quote_id:chosen.qid,back:chosen.back,approx:!strict.length};
+  // Cotação = CUSTO DE ENVIO da transportadora da NF (fallback: menor, marcado como aproximado)
+  return {cotacao:chosen.cot,quote_id:chosen.qid,back:chosen.back,approx:(!strict.length)||(!chosen.mExata)};
 }
 async function enrichQuotes(onlyMissing){
   const rows=store.rows;if(!rows.length){alert('Puxe os dados primeiro.');return;}
@@ -1534,7 +1540,7 @@ async function enrichQuotes(onlyMissing){
         if(!isEdited(r,'canal'))entry.canal=mapCanal(d.sales_channel||d.sales_channel_name)||'(sem canal)';
         if(!isEdited(r,'cep'))entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; if(!isEdited(r,'cidade'))entry.cidade=ec.shipping_city||''; if(!isEdited(r,'uf'))entry.uf=ec.shipping_state_code||''; if(!isEdited(r,'pedidoData'))entry.pedidoData=d.created_iso||d.created||''; if(!isEdited(r,'vols')&&d.shipment_order_volume_array&&d.shipment_order_volume_array.length){entry.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
         cache[r.nf]=entry;
-        if(hasTok&&!isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d); entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
+        if(hasTok&&!isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d, r.carrier); entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
       }else{ entry.canal=entry.canal||'(sem dados)'; if(hasTok){entry.cotacao=null;entry.v='hist';} }
       cache[r.nf]=entry;
     }catch(e){
@@ -1612,6 +1618,26 @@ async function corrigirFreteExibido(chained){
   }catch(e){ prog('Erro Kondado (frete): '+e.message); }
   if(!chained){ toggleBusy(false); setBar(0); }
 }
+// Zera o "Cobrado do cliente" dos pedidos CANCELADOS (situacao Kondado) do filtro — estorno do repasse. Marca r.cancelado (enriched mantém 0).
+async function zerarCancelados(){
+  const rows=store.rows; if(!rows.length){alert('Puxe os dados primeiro.');return;}
+  const fset=new Set(filtered().map(r=>r.nf));
+  const alvo=rows.filter(r=>r.nf&&fset.has(r.nf)&&r.order);
+  if(!alvo.length){prog('Nenhuma nota com número de pedido no filtro.');return;}
+  STOP=false;toggleBusy(true);prog('Buscando pedidos cancelados no Kondado...');
+  try{
+    const pres=await kddBatch('tinyerp_pedidos_detalhes',['BK2:BK','AB2:AB','AC2:AC','A2:A','BI2:BI','BJ2:BJ']);
+    const SIT=pres[0]||[],AB=pres[1]||[],AC=pres[2]||[],A=pres[3]||[],BI=pres[4]||[],BJ=pres[5]||[];
+    const cancel=new Set();
+    for(let i=0;i<SIT.length;i++){ if(/cancel/i.test(String(SIT[i]||''))){ [AB[i],AC[i],A[i],BI[i],BJ[i]].forEach(k=>{const x=String(k||'').trim(); if(x)cancel.add(x);}); } }
+    let z=0;
+    for(const r of alvo){ if(cancel.has(String(r.order).trim())){ if(!r.cancelado){ r.cancelado=true; } r.tms=0; markEdit(r,'tms'); z++; } }
+    store.rows=store.rows;
+    prog('Cancelados: '+z+' notas do filtro tiveram o "Cobrado do cliente" zerado (estorno). '+cancel.size+' pedidos cancelados na base do Kondado.');
+    render(); await autoBackup();
+  }catch(e){ prog('Erro: '+e.message); }
+  toggleBusy(false);setBar(0);
+}
 function forceRecalc(){
   const rows=store.rows;if(!rows.length){alert('Puxe os dados primeiro.');return;}
   const fset=new Set(filtered().map(r=>r.nf));
@@ -1655,7 +1681,7 @@ async function atualizarCTe(){
   }
   toggleBusy(false);setBar(0);
 }
-function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnFrete','btnCte','btnAmz','btnRepair','btnKondado'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
+function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnFrete','btnCte','btnCancel','btnAmz','btnRepair','btnKondado'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
 
 function backupData(){return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:store.rows,quotes:store.quotes,recuperacoes:store.recuperacoes,ressarc:store.ressarc};}
 async function ensurePerm(h,mode='readwrite'){ if(!h)return false; const o={mode}; if((await h.queryPermission(o))==='granted')return true; if((await h.requestPermission(o))==='granted')return true; return false; }
@@ -1789,7 +1815,7 @@ async function restoreBackup(){
     if(d.quotes){const merged={...store.quotes};for(const nf in d.quotes){merged[nf]={...(merged[nf]||{}),...d.quotes[nf]};}store.quotes=merged;}
     if(d.rows && (!store.rows.length || confirm('Substituir também a lista de notas (CT-e × cliente) pela do backup?'))) store.rows=d.rows;
     if(d.updated) store.updated=d.updated;
-    ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+    ['fMonth','lCarrier','lCanal','lUf','lMotivo'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
     const withCot=Object.values(store.quotes).filter(q=>q&&q.cotacao!=null).length;
     prog('Restaurado. Notas no cache com cotação: '+withCot+' · notas: '+store.rows.length+'.');
     render();
@@ -1816,7 +1842,7 @@ async function repairBackups(){
   }catch(e){prog('Erro lendo pasta: '+e.message);toggleBusy(false);return;}
   store.quotes=merged;
   if(rowsBest.length>store.rows.length)store.rows=rowsBest;
-  ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+  ['fMonth','lCarrier','lCanal','lUf','lMotivo'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
   const withCot=Object.values(merged).filter(q=>q&&q.cotacao!=null).length;
   prog('Reparo concluído: '+files+' backups juntados · '+withCot+' notas com cotação · '+store.rows.length+' notas.');
   toggleBusy(false);render();await autoBackup();
@@ -1878,6 +1904,7 @@ function enriched(){
     const ov=(/devolu/i.test(String(r.motivo||''))||isEdited(r,'tms'))?null:freteOverride(_canal,cq.uf,cq.pedidoData,skuStr); // Motivo devolução OU cobrado editado à mão: não aplica frete fixo Amazon
     if(ov){ if(ov.ambiguous)tmsAmbig=true; else {tmsOrig=r.tms;tms=ov.val;} }
     if(r.cteSplit){ tms=0; tmsOrig=null; tmsAmbig=false; cot=null; } // linha secundária de CT-e: só conta o CT-e, sem duplicar cobrado/cotação
+    if(r.cancelado){ tms=0; tmsOrig=null; tmsAmbig=false; } // pedido cancelado: cobrado do cliente = 0 (estornado do repasse)
     const _grp=carrierGroup(r.carrier); const _vols=cq.vols||[]; const _peso=_vols.reduce(function(x,v){return x+(v.p||0);},0); const _v0=_vols[0]; const _dims=_v0?('L:'+_v0.w+' A:'+_v0.h+' P:'+_v0.l):''; const _fat=cubFactor(_grp); const _cub=_vols.length?_vols.reduce(function(x,v){return x+((v.w/100)*(v.h/100)*(v.l/100)*_fat);},0):null; const _cubF=(r.cubFech!=null)?r.cubFech:null; const _cdiv=(_cubF!=null&&_cub!=null&&_cubF>_cub*1.05); const _cdivTxt=_cdiv?(_cubF.toLocaleString('pt-BR',{maximumFractionDigits:2})+' (+'+(_cubF-_cub).toLocaleString('pt-BR',{maximumFractionDigits:2})+' kg)'):''; return {...r,grupo:_grp,cotacao:cot,peso:_peso,dimsStr:_dims,cubagem:_cub,pesoAlerta:(_cub!=null&&_peso>_cub),cteNumFech:r.cteNumFech||'',cubFech:_cubF,cubDiverg:_cdiv,cubDivergTxt:_cdivTxt,approx:cq.approx||false,canal:_canal,cep:cq.cep||'',cidade:cq.cidade||'',uf:cq.uf||'',pedidoData:cq.pedidoData||'',quoteId:cq.quote_id||'',cotVsCte:(cot==null)?null:(cot-r.cte),sku:skuStr,produto:prodStr,tms:tms,tmsOrig:tmsOrig,tmsAmbig:tmsAmbig,lucro:(tms-r.cte),motivo:r.motivo||'',cteSplit:!!r.cteSplit};
   });
 }
@@ -1888,6 +1915,7 @@ function filtered(){
   if(HIDDEN.carrier.size)rows=rows.filter(r=>!HIDDEN.carrier.has(r.grupo||'(sem transportadora)'));
   if(HIDDEN.canal.size)rows=rows.filter(r=>!HIDDEN.canal.has(r.canal||'(sem canal)'));
   if(HIDDEN.uf.size)rows=rows.filter(r=>!HIDDEN.uf.has(r.uf||'(sem)'));
+  if(HIDDEN.motivo.size)rows=rows.filter(r=>!HIDDEN.motivo.has(r.motivo||'(sem motivo)'));
   const dFrom=document.getElementById('fDateFrom'), dTo=document.getElementById('fDateTo');
   const df=dFrom?dFrom.value:'', dt=dTo?dTo.value:'';
   if(df||dt)rows=rows.filter(r=>{const d=(r.pedidoData||'').slice(0,10); if(!d)return false; if(df&&d<df)return false; if(dt&&d>dt)return false; return true;});
@@ -1901,9 +1929,9 @@ function filtered(){
 }
 let sortK='cotVsCte',sortDir=1;
 // ==== Filtros multi-seleção (Transportadora, Canal, UF) — HIDDEN = valores desmarcados ====
-const HIDDEN={carrier:new Set(),canal:new Set(),uf:new Set()};
-const CURVALS={carrier:[],canal:[],uf:[]};
-const FDIM={carrier:{list:'lCarrier',sum:'sCarrier',lbl:'Transportadora'},canal:{list:'lCanal',sum:'sCanal',lbl:'Canal'},uf:{list:'lUf',sum:'sUf',lbl:'Estado'}};
+const HIDDEN={carrier:new Set(),canal:new Set(),uf:new Set(),motivo:new Set()};
+const CURVALS={carrier:[],canal:[],uf:[],motivo:[]};
+const FDIM={carrier:{list:'lCarrier',sum:'sCarrier',lbl:'Transportadora'},canal:{list:'lCanal',sum:'sCanal',lbl:'Canal'},uf:{list:'lUf',sum:'sUf',lbl:'Estado'},motivo:{list:'lMotivo',sum:'sMotivo',lbl:'Motivo'}};
 function fesc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function updateMultiSummary(dim){ const d=FDIM[dim],el=document.getElementById(d.sum); if(!el)return; const vals=CURVALS[dim]||[]; const hid=vals.filter(v=>HIDDEN[dim].has(v)).length; el.textContent=d.lbl+': '+(hid===0?'todas':(vals.length-hid)+'/'+vals.length); }
 function buildMulti(dim,vals){ CURVALS[dim]=vals; const d=FDIM[dim],list=document.getElementById(d.list); if(!list)return;
@@ -1921,6 +1949,7 @@ function buildFilters(){
   buildMulti('carrier',[...new Set(rows.map(r=>r.grupo||'(sem transportadora)'))].sort());
   buildMulti('canal',[...new Set(rows.map(r=>r.canal||'(sem canal)'))].sort());
   buildMulti('uf',[...new Set(rows.map(r=>r.uf||'(sem)'))].sort());
+  buildMulti('motivo',[...new Set(rows.map(r=>r.motivo||'(sem motivo)'))].sort());
 }
 function fonteTag(r){ if(r.cteFonte==='xml')return '<span class="tag in">📄 XML</span>'; if(r.cteFonte==='fechamento')return '<span class="tag">📋 Fechamento</span>'; return (r.cte!=null&&r.cte>0)?'<span class="tag" style="opacity:.65">⚙ Sistema</span>':'<span class="muted">—</span>'; }
 function render(){
@@ -2213,7 +2242,7 @@ async function loadCloud(force){
     if(d.recuperacoes) store.recuperacoes=d.recuperacoes;
     if(d.ressarc) store.ressarc=d.ressarc;
     applySkuMap();
-    ['fMonth','lCarrier','lCanal','lUf'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
+    ['fMonth','lCarrier','lCanal','lUf','lMotivo'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
     try{CLOUD_BASE=JSON.parse(JSON.stringify(backupData()));}catch(e){}
     prog('Nuvem carregada: '+store.rows.length+' notas'+(d.updated?(' · atualizado '+fmtDate(d.updated)):'')+'.');
     render();
@@ -2226,16 +2255,19 @@ function _rowKey(r){ return normNF(r.nf)+'|'+String(r.cteNumFech||''); }
 function mergeBackup(base, mine, theirs){
   const eq=(a,b)=>JSON.stringify(a===undefined?null:a)===JSON.stringify(b===undefined?null:b);
   base=base||{}; mine=mine||{}; theirs=theirs||{};
+  // rows: começa do que está na nuvem (dos outros) e sobrepõe só o que EU criei/alterei
   const bMap={},tMap={},mMap={};
   (base.rows||[]).forEach(r=>{bMap[_rowKey(r)]=r;});
   (theirs.rows||[]).forEach(r=>{tMap[_rowKey(r)]=r;});
   (mine.rows||[]).forEach(r=>{mMap[_rowKey(r)]=r;});
   const res={}; for(const k in tMap)res[k]=tMap[k];
-  for(const k in mMap){ const m=mMap[k], b=bMap[k]; if(!b||!eq(m,b)) res[k]=m; }
-  for(const k in bMap){ if(!(k in mMap) && (k in res) && eq(tMap[k],bMap[k])) delete res[k]; }
+  for(const k in mMap){ const m=mMap[k], b=bMap[k]; if(!b||!eq(m,b)) res[k]=m; }              // meus novos/alterados ganham
+  for(const k in bMap){ if(!(k in mMap) && (k in res) && eq(tMap[k],bMap[k])) delete res[k]; } // o que EU apaguei (e ninguém mexeu) some
   const rows=Object.values(res);
+  // quotes: por NF, campo a campo — meus campos alterados ganham
   const quotes={...(theirs.quotes||{})}; const mq=mine.quotes||{}, bq=base.quotes||{};
   for(const nf in mq){ const m=mq[nf]||{}, b=bq[nf]||{}; const merged={...(quotes[nf]||{})}; for(const f in m){ if(!eq(m[f],b[f])) merged[f]=m[f]; } quotes[nf]=merged; }
+  // recuperações: união por id; ressarcimento: união por pedido
   const recById={}; (theirs.recuperacoes||[]).forEach(x=>{if(x&&x.id)recById[x.id]=x;}); (mine.recuperacoes||[]).forEach(x=>{if(x&&x.id)recById[x.id]=x;});
   const ressarc={...(theirs.ressarc||{}), ...(mine.ressarc||{})};
   return {v:2,savedAt:new Date().toISOString(),updated:(mine.updated||theirs.updated||''),rows,quotes,recuperacoes:Object.values(recById),ressarc};
@@ -2259,6 +2291,7 @@ async function cloudSave(silent){
     if(!silent)prog('✅ Salvo na nuvem (mesclado): '+store.rows.length+' notas. As edições de outras pessoas foram preservadas.');
   }catch(e){ if(!silent)alert('Erro ao salvar na nuvem: '+e.message); prog('Falha ao salvar na nuvem: '+e.message); }
 }
+// ===== Auto-salvar na nuvem (com debounce) =====
 function autoCloudOn(){ return localStorage.getItem('cf.autoCloud')!=='0'; }
 let _cloudTimer=null;
 function scheduleCloudSave(){ if(!autoCloudOn())return; clearTimeout(_cloudTimer); const st=document.getElementById('cloudStatus'); if(st)st.textContent='☁ alterações pendentes...'; _cloudTimer=setTimeout(function(){ cloudSave(true); }, 12000); }
