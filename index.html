@@ -1247,9 +1247,7 @@ async function completarMes(){
     store.quotes=cache;applySkuMap();store.rows=store.rows;
     try{await completarPedidosKondado(true);}catch(e){}
     try{await corrigirFreteExibido(true);}catch(e){}
-    // Cancelados: zera "Cobrado do cliente" (estorno do repasse) das notas do filtro cujo pedido está cancelado no Kondado.
-    let zc=0; try{ const cancel=await fetchCanceladosSet(); const alvoC=store.rows.filter(r=>r.nf&&fset.has(r.nf)&&r.order); zc=aplicarCanceladosRows(alvoC,cancel); if(zc)store.rows=store.rows; }catch(e){}
-    prog('Concluido. Novos pedidos: '+added.length+' - notas completadas: '+done+' (cotacoes Intelipost: '+found+'). '+zc+' cancelados com cobrado zerado. Cobrado do cliente e SKU vindos do Kondado. Nada preenchido foi sobrescrito.');
+    prog('Concluido. Novos pedidos: '+added.length+' - notas completadas: '+done+' (cotacoes Intelipost: '+found+'). Cobrado do cliente e SKU vindos do Kondado. Nada preenchido foi sobrescrito.');
     render();await autoBackup();
   }catch(e){
     prog('Erro: '+e.message);
@@ -1620,20 +1618,6 @@ async function corrigirFreteExibido(chained){
   }catch(e){ prog('Erro Kondado (frete): '+e.message); }
   if(!chained){ toggleBusy(false); setBar(0); }
 }
-// Busca no Kondado o conjunto de nºs de pedido CANCELADOS (situacao) — usado pelo botão e pelo "Atualizar mês".
-async function fetchCanceladosSet(){
-  const pres=await kddBatch('tinyerp_pedidos_detalhes',['BK2:BK','AB2:AB','AC2:AC','A2:A','BI2:BI','BJ2:BJ']);
-  const SIT=pres[0]||[],AB=pres[1]||[],AC=pres[2]||[],A=pres[3]||[],BI=pres[4]||[],BJ=pres[5]||[];
-  const cancel=new Set();
-  for(let i=0;i<SIT.length;i++){ if(/cancel/i.test(String(SIT[i]||''))){ [AB[i],AC[i],A[i],BI[i],BJ[i]].forEach(k=>{const x=String(k||'').trim(); if(x)cancel.add(x);}); } }
-  return cancel;
-}
-// Marca r.cancelado e zera o "Cobrado do cliente" (estornado do repasse) nas linhas cujo pedido está no set de cancelados.
-function aplicarCanceladosRows(rows,cancel){
-  let z=0;
-  for(const r of rows){ if(r.order && cancel.has(String(r.order).trim())){ if(!r.cancelado)r.cancelado=true; r.tms=0; markEdit(r,'tms'); z++; } }
-  return z;
-}
 // Zera o "Cobrado do cliente" dos pedidos CANCELADOS (situacao Kondado) do filtro — estorno do repasse. Marca r.cancelado (enriched mantém 0).
 async function zerarCancelados(){
   const rows=store.rows; if(!rows.length){alert('Puxe os dados primeiro.');return;}
@@ -1642,8 +1626,12 @@ async function zerarCancelados(){
   if(!alvo.length){prog('Nenhuma nota com número de pedido no filtro.');return;}
   STOP=false;toggleBusy(true);prog('Buscando pedidos cancelados no Kondado...');
   try{
-    const cancel=await fetchCanceladosSet();
-    const z=aplicarCanceladosRows(alvo,cancel);
+    const pres=await kddBatch('tinyerp_pedidos_detalhes',['BK2:BK','AB2:AB','AC2:AC','A2:A','BI2:BI','BJ2:BJ']);
+    const SIT=pres[0]||[],AB=pres[1]||[],AC=pres[2]||[],A=pres[3]||[],BI=pres[4]||[],BJ=pres[5]||[];
+    const cancel=new Set();
+    for(let i=0;i<SIT.length;i++){ if(/cancel/i.test(String(SIT[i]||''))){ [AB[i],AC[i],A[i],BI[i],BJ[i]].forEach(k=>{const x=String(k||'').trim(); if(x)cancel.add(x);}); } }
+    let z=0;
+    for(const r of alvo){ if(cancel.has(String(r.order).trim())){ if(!r.cancelado){ r.cancelado=true; } r.tms=0; markEdit(r,'tms'); z++; } }
     store.rows=store.rows;
     prog('Cancelados: '+z+' notas do filtro tiveram o "Cobrado do cliente" zerado (estorno). '+cancel.size+' pedidos cancelados na base do Kondado.');
     render(); await autoBackup();
