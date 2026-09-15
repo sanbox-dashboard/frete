@@ -1197,6 +1197,8 @@ async function pullNew(silent){
 }
 
 // Botão único: completa o mês do filtro. Puxa pedidos NOVOS e preenche SÓ campos vazios (nunca sobrescreve o que já está completo).
+// Erro de rede/CORS (ex.: Intelipost bloqueou o GraphQL pelo navegador) — não é token nem bug do dash.
+function isNetErr(e){ return /failed to fetch|networkerror|load failed|err_failed|err_network/i.test((e&&e.message)||''); }
 async function completarMes(){
   let hasTok=tokenStatus();
   STOP=false;toggleBusy(true);
@@ -1207,8 +1209,8 @@ async function completarMes(){
     const months=monthSel?[monthSel]:Array.from({length:lastM},(_,i)=>i+1);
     // 1) pedidos NOVOS do(s) mes(es) do filtro (aditivo, nao mexe nos antigos)
     const existing=new Set(store.rows.map(r=>r.nf));
-    let added=[];
-    if(hasTok){ for(const m of months){ if(STOP)break; const rows=await pullMonth(m); for(const r of rows){ if(r.nf&&!existing.has(r.nf)){added.push(r);existing.add(r.nf);} } } }
+    let added=[]; let gqlDown=false;
+    if(hasTok){ try{ for(const m of months){ if(STOP)break; const rows=await pullMonth(m); for(const r of rows){ if(r.nf&&!existing.has(r.nf)){added.push(r);existing.add(r.nf);} } } }catch(e){ if(isNetErr(e))gqlDown=true; else if(/401|token|autentic/i.test(e.message||''))hasTok=false; else throw e; } }
     if(added.length){ store.rows=store.rows.concat(added); store.updated=new Date().toISOString(); }
     applySkuMap();
     // 2) preenche campos VAZIOS (canal, CEP, cidade, UF, data, cotacao) - sem sobrescrever
@@ -1234,7 +1236,7 @@ async function completarMes(){
           if(isBlank(e.uf)&&!isEdited(r,'uf')) e.uf=ec.shipping_state_code||'';
           if(isBlank(e.pedidoData)&&!isEdited(r,'pedidoData')) e.pedidoData=d.created_iso||d.created||'';
           if(!isEdited(r,'vols')&&d.shipment_order_volume_array&&d.shipment_order_volume_array.length){e.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
-          if(hasTok && (e.cotacao===undefined||e.cotacao===null) && !isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d, r.carrier); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
+          if(hasTok && !gqlDown && (e.cotacao===undefined||e.cotacao===null) && !isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d, r.carrier); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(isNetErr(qe))gqlDown=true; else if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
         }
         cache[r.nf]=e;
       }catch(err){
@@ -1247,7 +1249,7 @@ async function completarMes(){
     store.quotes=cache;applySkuMap();store.rows=store.rows;
     try{await completarPedidosKondado(true);}catch(e){}
     try{await corrigirFreteExibido(true);}catch(e){}
-    prog('Concluido. Novos pedidos: '+added.length+' - notas completadas: '+done+' (cotacoes Intelipost: '+found+'). Cobrado do cliente e SKU vindos do Kondado. Nada preenchido foi sobrescrito.');
+    prog('Concluido. Novos pedidos: '+added.length+' - notas completadas: '+done+' (cotacoes Intelipost: '+found+'). Cobrado do cliente e SKU vindos do Kondado. Nada preenchido foi sobrescrito.'+(gqlDown?' ⚠ Cotações/CT-e da Intelipost ficaram indisponíveis: a Intelipost bloqueou o acesso GraphQL pelo navegador (CORS). O resto foi atualizado normalmente.':''));
     render();await autoBackup();
   }catch(e){
     prog('Erro: '+e.message);
@@ -1528,7 +1530,7 @@ async function enrichQuotes(onlyMissing){
   const pending=rows.filter(r=>r.nf&&fset.has(r.nf)&&(onlyMissing?(!(r.nf in cache)||cache[r.nf].cotacao==null||!(cache[r.nf].vols&&cache[r.nf].vols.length)):(!(r.nf in cache)||cache[r.nf].v!=='hist')));
   if(!pending.length){prog(onlyMissing?('Nada faltando no filtro atual — todas as '+fset.size+' notas do recorte já têm cotação.'):('Nada a recalcular no filtro atual — todas as '+fset.size+' notas já foram processadas. Use "🔄 Forçar recálculo" para refazer.'));toggleBusy(false);return;}
   prog((onlyMissing?'Preenchendo só as faltantes (sem cotação): ':'Buscando cotação histórica + canal de ')+pending.length+' notas (no filtro atual). Já com cotação: '+(fset.size-pending.length));
-  let done=0,found=0;
+  let done=0,found=0,gqlDown=false;
   for(const r of pending){
     if(STOP)break;
     try{
@@ -1540,7 +1542,7 @@ async function enrichQuotes(onlyMissing){
         if(!isEdited(r,'canal'))entry.canal=mapCanal(d.sales_channel||d.sales_channel_name)||'(sem canal)';
         if(!isEdited(r,'cep'))entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; if(!isEdited(r,'cidade'))entry.cidade=ec.shipping_city||''; if(!isEdited(r,'uf'))entry.uf=ec.shipping_state_code||''; if(!isEdited(r,'pedidoData'))entry.pedidoData=d.created_iso||d.created||''; if(!isEdited(r,'vols')&&d.shipment_order_volume_array&&d.shipment_order_volume_array.length){entry.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
         cache[r.nf]=entry;
-        if(hasTok&&!isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d, r.carrier); entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
+        if(hasTok&&!gqlDown&&!isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d, r.carrier); entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(isNetErr(qe))gqlDown=true; else if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
       }else{ entry.canal=entry.canal||'(sem dados)'; if(hasTok){entry.cotacao=null;entry.v='hist';} }
       cache[r.nf]=entry;
     }catch(e){
@@ -1551,7 +1553,7 @@ async function enrichQuotes(onlyMissing){
     if(done%10===0){store.quotes=cache;setBar(done/pending.length);prog(`Cotação histórica ${done}/${pending.length} (encontradas: ${found})...`);render();}
     await new Promise(s=>setTimeout(s,100));
   }
-  store.rows=store.rows;store.quotes=cache;prog(`Concluído: ${done} notas processadas (${found} cotações encontradas).`);
+  store.rows=store.rows;store.quotes=cache;prog(`Concluído: ${done} notas processadas (${found} cotações encontradas).`+(gqlDown?' ⚠ Cotações da Intelipost indisponíveis: a Intelipost bloqueou o GraphQL pelo navegador (CORS). Canal/CEP/UF/cobrado do cliente foram preenchidos normalmente.':''));
   toggleBusy(false);setBar(0);render();await autoBackup();
 }
 
@@ -1676,8 +1678,8 @@ async function atualizarCTe(){
     prog('CT-e atualizado: '+upd+' notas alteradas (de '+scan+' no filtro). '+prot+' de fechamento/XML preservadas.');
     render();await autoBackup();
   }catch(e){
-    prog('Erro: '+e.message);
-    if(/autentic|401/i.test(e.message)){const b=document.getElementById('tokBadge');b.className='badge err';b.textContent='Token expirado';}
+    if(isNetErr(e)){ prog('⚠ CT-e indisponível agora: a Intelipost bloqueou o acesso GraphQL pelo navegador (CORS). O CT-e do fechamento/XML e as edições manuais seguem valendo.'); }
+    else { prog('Erro: '+e.message); if(/autentic|401/i.test(e.message)){const b=document.getElementById('tokBadge');b.className='badge err';b.textContent='Token expirado';} }
   }
   toggleBusy(false);setBar(0);
 }
