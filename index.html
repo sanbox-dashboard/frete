@@ -928,6 +928,15 @@ function renderPrazos(){
   var byCh={}; rows.forEach(function(r){ if(!byCh[r[5]])byCh[r[5]]=pzNewAgg(); pzAdd(byCh[r[5]],r); });
   var carBars=pzBars(Object.keys(byCar).map(function(k){return {name:PZ_DATA.carriers[k],a:byCar[k]};}));
   var chBars=pzBars(Object.keys(byCh).map(function(k){return {name:PZ_DATA.channels[k],a:byCh[k]};}));
+  // Tabela completa por transportadora (capital vs. interior) — já aberta, sem precisar filtrar
+  var byCarD={}; rows.forEach(function(r){ var cc=PZ_DATA.carriers[r[4]]; if(!byCarD[cc])byCarD[cc]={cap:pzNewAgg(),int:pzNewAgg(),tot:pzNewAgg()}; pzAdd(r[3]===1?byCarD[cc].cap:byCarD[cc].int,r); pzAdd(byCarD[cc].tot,r); });
+  var carRecs=Object.keys(byCarD).map(function(cc){return {car:cc,o:byCarD[cc]};}).sort(function(a,b){return b.o.tot.n-a.o.tot.n;});
+  var carTb='<table><thead><tr><th style=&quot;text-align:left&quot;>Transportadora</th><th>Cap. nº</th><th>Cap. atraso</th><th>Cap. % atr.</th><th>Int. nº</th><th>Int. atraso</th><th>Int. % atr.</th><th>Total nº</th><th>Total atraso</th><th>% no prazo</th><th>Trânsito méd.</th></tr></thead><tbody>'+
+    carRecs.map(function(x){var o=x.o; var np=o.tot.n?(100*o.tot.onEarly/o.tot.n):0; var tr=o.tot.tn?(o.tot.st/o.tot.tn):null; return '<tr><td style=&quot;text-align:left;font-weight:700&quot;>'+x.car+'</td>'+
+      '<td>'+(o.cap.n||'<span style=color:var(--mu)>0</span>')+'</td><td>'+pzFmtDelay(pzAvg(o.cap))+'</td><td>'+pzFmtPct(o.cap.late,o.cap.n)+'</td>'+
+      '<td>'+(o.int.n||'<span style=color:var(--mu)>0</span>')+'</td><td>'+pzFmtDelay(pzAvg(o.int))+'</td><td>'+pzFmtPct(o.int.late,o.int.n)+'</td>'+
+      '<td style=&quot;font-weight:800&quot;>'+o.tot.n+'</td><td>'+pzFmtDelay(pzAvg(o.tot))+'</td><td>'+np.toFixed(1)+'%</td><td>'+(tr!=null?tr.toFixed(1):'—')+'</td></tr>';}).join('')+
+    '</tbody></table>';
 
   var leg='<div style=&quot;font-size:.58rem;color:var(--mu);margin-top:6px&quot;><span style=&quot;display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--gr);margin-right:3px&quot;></span>adiantado/no prazo <span style=&quot;display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--re);margin:0 3px 0 10px&quot;></span>atrasado · (nº)=pedidos</div>';
 
@@ -936,7 +945,8 @@ function renderPrazos(){
     '<div class=&quot;cr2&quot; style=&quot;display:grid;grid-template-columns:1fr 1fr;gap:9px&quot;>'+
       '<div class=&quot;card&quot;><div style=&quot;font:900 .72rem \'Nunito\';color:var(--tx);margin-bottom:8px&quot;>Atraso médio por transportadora</div>'+carBars+leg+'</div>'+
       '<div class=&quot;card&quot;><div style=&quot;font:900 .72rem \'Nunito\';color:var(--tx);margin-bottom:8px&quot;>Atraso médio por marketplace</div>'+chBars+leg+'</div>'+
-    '</div>';
+    '</div>'+
+    '<div class=&quot;card&quot;><div class=&quot;ttl&quot; style=&quot;font:900 .72rem \'Nunito\';color:var(--tx);margin-bottom:8px&quot;>Detalhe por transportadora <span style=&quot;color:var(--mu);font-weight:700;font-size:.6rem&quot;>(capital vs. interior · − = adiantado · vermelho ≥5% atraso)</span></div><div style=&quot;overflow-x:auto&quot;>'+carTb+'</div></div>';
 
   var modeTxt = pzMode==='merged' ? 'entregues + em aberto fora do prazo' : 'pedidos entregues';
   document.getElementById('pzStatus').textContent = g.n.toLocaleString('pt-BR')+' '+modeTxt;
@@ -7788,21 +7798,18 @@ async function gql(vars){
   if(j.errors) throw new Error(j.errors[0].message||'Erro GraphQL');
   return j.data.preInvoicesV2;
 }
+// Web App do Apps Script: faz login sozinho na Intelipost e fala com o GraphQL do lado do servidor
+// (o navegador não consegue por causa do bloqueio de CORS da Intelipost).
+const WEBAPP_URL='https://script.google.com/macros/s/AKfycbzPw_etpMdWrxyFPo3rqh289eEMGjSDVfi4rPho8QgN8ER__Xsh0j47Dj4vjci-ZzfP/exec';
 async function pullMonth(m){
-  const end=new Date(YEAR,m,0).getDate();
-  const dr={start:`${YEAR}-${String(m).padStart(2,'0')}-01`,end:`${YEAR}-${String(m).padStart(2,'0')}-${end}`};
-  let page=1,out=[],hasNext=true,total=0;
-  while(hasNext){
-    if(STOP)break;
-    const pv=await gql({date_range:dr,search_by:'order_number',search_values:[],page,limit:500});
-    total=pv.total;
-    for(const it of pv.items){
-      const inv=(it.invoice&&it.invoice[0])||{};
-      out.push({nf:inv.number||'',order:inv.order_number||'',month:m,carrier:(it.cte&&it.cte.company_name)||'',cteNum:(it.cte&&it.cte.number)||'',issue:(it.cte&&it.cte.issue_date)||'',cte:(it.cte_value||0)+(it.cte_complementary_value||0),tms:it.tms_value||0,status:(it.status&&it.status.label)||'',margin:(it.margin_status&&it.margin_status.value)||''});
-    }
-    hasNext=pv.hasNextPage;page++;
-    prog(`Mês ${MESES[m]}: ${out.length}/${total} notas...`);
-  }
+  prog(`Mês ${MESES[m]}: buscando CT-e (via Apps Script, login automático)...`);
+  const u=WEBAPP_URL+'?action=preinvoices&month='+m+'&year='+YEAR+'&t='+Date.now();
+  const r=await fetch(u,{cache:'no-store'});
+  if(!r.ok) throw new Error('Apps Script HTTP '+r.status);
+  const j=await r.json();
+  if(!j||!j.ok) throw new Error('Apps Script: '+((j&&j.erro)||'falha ao buscar pré-faturas'));
+  const out=j.rows||[];
+  prog(`Mês ${MESES[m]}: ${out.length} notas.`);
   return out;
 }
 async function pullAll(silent){
@@ -7861,7 +7868,7 @@ async function completarMes(){
     // 1) pedidos NOVOS do(s) mes(es) do filtro (aditivo, nao mexe nos antigos)
     const existing=new Set(store.rows.map(r=>r.nf));
     let added=[]; let gqlDown=false;
-    if(hasTok){ try{ for(const m of months){ if(STOP)break; const rows=await pullMonth(m); for(const r of rows){ if(r.nf&&!existing.has(r.nf)){added.push(r);existing.add(r.nf);} } } }catch(e){ if(isNetErr(e))gqlDown=true; else if(/401|token|autentic/i.test(e.message||''))hasTok=false; else throw e; } }
+    try{ for(const m of months){ if(STOP)break; const rows=await pullMonth(m); for(const r of rows){ if(r.nf&&!existing.has(r.nf)){added.push(r);existing.add(r.nf);} } } }catch(e){ if(isNetErr(e))gqlDown=true; else if(/401|token|autentic/i.test(e.message||''))hasTok=false; else throw e; }
     if(added.length){ store.rows=store.rows.concat(added); store.updated=new Date().toISOString(); }
     applySkuMap();
     // 2) preenche campos VAZIOS (canal, CEP, cidade, UF, data, cotacao) - sem sobrescrever
@@ -7887,7 +7894,7 @@ async function completarMes(){
           if(isBlank(e.uf)&&!isEdited(r,'uf')) e.uf=ec.shipping_state_code||'';
           if(isBlank(e.pedidoData)&&!isEdited(r,'pedidoData')) e.pedidoData=d.created_iso||d.created||'';
           if(!isEdited(r,'vols')&&d.shipment_order_volume_array&&d.shipment_order_volume_array.length){e.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
-          if(hasTok && !gqlDown && (e.cotacao===undefined||e.cotacao===null) && !isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d, r.carrier); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(isNetErr(qe))gqlDown=true; else if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
+          if(!gqlDown && (e.cotacao===undefined||e.cotacao===null) && !isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d, r.carrier); e.cotacao=hq.cotacao; e.quote_id=hq.quote_id; e.back=hq.back; e.approx=hq.approx||false; e.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(isNetErr(qe))gqlDown=true; else if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
         }
         cache[r.nf]=e;
       }catch(err){
@@ -8139,7 +8146,10 @@ async function doQuote(payload){
 // ---- Cotação HISTÓRICA: busca a cotação real por CEP destino, na janela de 4 dias até a criação do pedido ----
 function ymdMinus(day0,n){const p=day0.split('-').map(Number);return new Date(Date.UTC(p[0],p[1]-1,p[2])-n*86400000).toISOString().slice(0,10);}
 async function quotationsDay(cep,dayStr){
-  const r=await fetch(GQL,{method:'POST',headers:{'content-type':'application/json',Authorization:'Bearer '+store.token},body:JSON.stringify({query:QUOTE_QUERY,variables:{search_by:'quote_destination_zip_code',search_value:cep,created_after:dayStr+'T00:00:00.000-03:00',page:1,limit:50,sort_direction:'desc',sort_field:'create_at'}})});
+  // via Apps Script (login automático) — a Intelipost bloqueia o GraphQL direto do navegador
+  const u=WEBAPP_URL+'?action=quotations&cep='+encodeURIComponent(cep)+'&after='+encodeURIComponent(dayStr+'T00:00:00.000-03:00')+'&t='+Date.now();
+  const r=await fetch(u,{cache:'no-store'});
+  if(!r.ok) throw new Error('Apps Script HTTP '+r.status);
   const j=await r.json(); if(j.errors) throw new Error(j.errors[0].message||'erro');
   return (j.data&&j.data.quotations&&j.data.quotations.items)||[];
 }
@@ -8193,7 +8203,7 @@ async function enrichQuotes(onlyMissing){
         if(!isEdited(r,'canal'))entry.canal=mapCanal(d.sales_channel||d.sales_channel_name)||'(sem canal)';
         if(!isEdited(r,'cep'))entry.cep=ec.shipping_zip_code||d.destination_zip_code||''; if(!isEdited(r,'cidade'))entry.cidade=ec.shipping_city||''; if(!isEdited(r,'uf'))entry.uf=ec.shipping_state_code||''; if(!isEdited(r,'pedidoData'))entry.pedidoData=d.created_iso||d.created||''; if(!isEdited(r,'vols')&&d.shipment_order_volume_array&&d.shipment_order_volume_array.length){entry.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};});}
         cache[r.nf]=entry;
-        if(hasTok&&!gqlDown&&!isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d, r.carrier); entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(isNetErr(qe))gqlDown=true; else if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
+        if(!gqlDown&&!isEdited(r,'cotacao')){ try{ const hq=await findHistoricalQuote(d, r.carrier); entry.cotacao=hq.cotacao; entry.quote_id=hq.quote_id; entry.back=hq.back; entry.approx=hq.approx||false; entry.v='hist'; if(hq.cotacao!=null)found++; }catch(qe){ if(isNetErr(qe))gqlDown=true; else if(/401|token|autentic/i.test(qe.message||''))hasTok=false; } }
       }else{ entry.canal=entry.canal||'(sem dados)'; if(hasTok){entry.cotacao=null;entry.v='hist';} }
       cache[r.nf]=entry;
     }catch(e){
@@ -8303,7 +8313,6 @@ function forceRecalc(){
 }
 // Re-puxa da Intelipost o "transportadora cobrou" (CT-e) das notas do filtro e sobrescreve r.cte. Preserva fechamento/XML (conciliação oficial das transportadoras).
 async function atualizarCTe(){
-  if(!tokenStatus()){alert('Configure o token primeiro (passo 1).');return;}
   const frows=filtered(); if(!frows.length){prog('Nada no filtro para atualizar.');return;}
   const fset=new Set(frows.map(r=>r.nf));
   const months=[...new Set(frows.map(r=>r.month).filter(Boolean))].sort((a,b)=>a-b);
