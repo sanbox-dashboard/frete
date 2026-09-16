@@ -824,7 +824,7 @@ function pzInit(){
   var chSet={}, ufSet={}, carSet={};
   for(var i=0;i<PZ_DATA.rows.length;i++){
     var r=PZ_DATA.rows[i];
-    if(r[7]===1){ if(r[0]<pzDmin)pzDmin=r[0]; if(r[0]>pzDmax)pzDmax=r[0]; }
+    if(r[7]===0){ if(r[0]<pzDmin)pzDmin=r[0]; if(r[0]>pzDmax)pzDmax=r[0]; }
     chSet[r[5]]=1; ufSet[r[2]]=1; carSet[r[4]]=1;
   }
   var chS=document.getElementById('pzChan'), ufS=document.getElementById('pzUf'), carS=document.getElementById('pzCar');
@@ -861,7 +861,7 @@ function pzFilter(){
   var out=[];
   for(var i=0;i<PZ_DATA.rows.length;i++){
     var r=PZ_DATA.rows[i];
-    if(pzMode==='delivered' &amp;&amp; r[7]!==1) continue;
+    if(pzMode==='delivered' &amp;&amp; r[7]!==0) continue;
     if(r[0]<diI||r[0]>dfI) continue;
     if(ch!==''&amp;&amp;r[5]!==+ch) continue;
     if(uf!==''&amp;&amp;r[2]!==uf) continue;
@@ -891,7 +891,7 @@ function renderPrazos(){
   if(!pzInited) pzInit();
   var rows=pzFilter();
   var g=pzNewAgg(); for(var i=0;i<rows.length;i++) pzAdd(g,rows[i]);
-  var openN=rows.filter(function(r){return r[7]===0;}).length, delvN=rows.length-openN;
+  var openN=rows.filter(function(r){return r[7]===1;}).length, delvN=rows.length-openN;
 
   // KPIs
   var kc=['var(--od)','var(--or)','var(--gr)','var(--re)','var(--mu)'];
@@ -941,7 +941,7 @@ function renderPrazos(){
   var modeTxt = pzMode==='merged' ? 'entregues + em aberto fora do prazo' : 'pedidos entregues';
   document.getElementById('pzStatus').textContent = g.n.toLocaleString('pt-BR')+' '+modeTxt;
 
-  var dv=PZ_DATA.rows.filter(function(r){return r[7]===1;}).length, op=PZ_DATA.rows.length-dv;
+  var dv=PZ_DATA.rows.filter(function(r){return r[7]===0;}).length, op=PZ_DATA.rows.length-dv;
   document.getElementById('pzFoot').innerHTML='<b>Metodologia.</b> Dados da Intelipost (painel Gestão de Pedidos). Duas visões: <b>Só entregues</b> ('+dv.toLocaleString('pt-BR')+' pedidos) e <b>Entregues + em aberto fora do prazo</b> (+'+op+' não entregues com prev. transp. vencida). '+
     'Atraso (dias corridos) = data de entrega − &quot;Entrega prev. (Transp.)&quot; para entregues; = hoje − prev. para em aberto. Positivo = atrasado; ≤ 0 = no prazo. Filtro de período pela data de entrega (ou prevista, se em aberto). Capital = cidade destino igual à capital da UF (DF = capital). Marketplace = canal de venda.';
 }
