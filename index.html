@@ -816,7 +816,7 @@ function pzFmtDelay(v){
 }
 function pzFmtPct(x,n){
   if(!n) return '<span style=&quot;color:var(--mu)&quot;>—</span>';
-  var p=pzPct(x,n), c = p>10?'var(--re)':(p>3?'var(--od)':'var(--gr)');
+  var p=pzPct(x,n), c = p>=5?'var(--re)':(p>=3?'var(--od)':'var(--gr)');
   return '<span style=&quot;color:'+c+';font-weight:800&quot;>'+p.toFixed(1)+'%</span>';
 }
 
@@ -1396,7 +1396,7 @@ tfoot td:first-child{text-align:left;}
 .fr-chip.eq{background:var(--bg);color:var(--mu);}
 
 /* ── LOGIN ──────────────────────────────────────────────────── */
-#loginOverlay{position:fixed;inset:0;background:#0f172a;display:flex;align-items:center;justify-content:center;z-index:9999;}
+#loginOverlay{position:fixed;inset:0;background:#0f172a;display:none;align-items:center;justify-content:center;z-index:9999;}
 #loginBox{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:40px 36px;width:100%;max-width:360px;text-align:center;}
 #loginLogo{font-size:1.4rem;font-weight:900;color:#fff;letter-spacing:-0.5px;margin-bottom:6px;}
 #loginSub{font-size:.72rem;color:#94a3b8;margin-bottom:28px;}
@@ -7495,11 +7495,7 @@ function renderFrete(){
   }
 
   function jaAutenticado(){
-    var exp = sessionStorage.getItem(KEY_EXP);
-    var auth = sessionStorage.getItem(KEY_AUTH);
-    if(!exp||!auth) return false;
-    if(Date.now() > parseInt(exp)) { sessionStorage.removeItem(KEY_EXP); sessionStorage.removeItem(KEY_AUTH); return false; }
-    return auth === HASH;
+    return true; // senha removida a pedido — acesso liberado sem login
   }
 
   function marcarAutenticado(){
