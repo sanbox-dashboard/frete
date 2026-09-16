@@ -768,10 +768,12 @@ tfoot td:first-child{text-align:left;}
         <button class=&quot;fbtn on&quot; data-m=&quot;delivered&quot; onclick=&quot;pzSetMode(this)&quot;>Só entregues</button>
         <button class=&quot;fbtn&quot; data-m=&quot;merged&quot; onclick=&quot;pzSetMode(this)&quot;>Entregues + em aberto fora do prazo</button>
       </div>
+      <label style=&quot;margin-left:6px&quot;>Mês:</label>
+      <select id=&quot;pzMes&quot; onchange=&quot;pzSetMes(this.value)&quot;><option value=&quot;&quot;>Período livre</option></select>
       <label style=&quot;margin-left:6px&quot;>Período:</label>
-      <input type=&quot;date&quot; id=&quot;pzIni&quot; onchange=&quot;renderPrazos()&quot;>
+      <input type=&quot;date&quot; id=&quot;pzIni&quot; onchange=&quot;pzUserDates=true;document.getElementById('pzMes').value='';renderPrazos()&quot;>
       <span style=&quot;font-size:.65rem;color:var(--mu)&quot;>até</span>
-      <input type=&quot;date&quot; id=&quot;pzFim&quot; onchange=&quot;renderPrazos()&quot;>
+      <input type=&quot;date&quot; id=&quot;pzFim&quot; onchange=&quot;pzUserDates=true;document.getElementById('pzMes').value='';renderPrazos()&quot;>
       <label style=&quot;margin-left:6px&quot;>Marketplace:</label>
       <select id=&quot;pzChan&quot; onchange=&quot;renderPrazos()&quot;><option value=&quot;&quot;>Todos</option></select>
       <label style=&quot;margin-left:6px&quot;>Estado:</label>
@@ -799,6 +801,15 @@ var PZ_BASE = Date.UTC(2026,0,1);
 var pzMode = 'delivered';
 var pzInited = false;
 var pzDmin = Infinity, pzDmax = -Infinity;
+var pzUserDates = false;   // vira true quando VOCÊ escolhe data/mês — aí o recarregamento não sobrescreve
+var PZ_MESES = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+function pzSetMes(v){
+  if(!v){ pzUserDates=false; pzInited=false; renderPrazos(); return; }
+  var p=v.split('-'), y=+p[0], mo=+p[1];
+  document.getElementById('pzIni').value = pzFmtISO(new Date(Date.UTC(y,mo-1,1)));
+  document.getElementById('pzFim').value = pzFmtISO(new Date(Date.UTC(y,mo,0)));
+  pzUserDates=true; renderPrazos();
+}
 
 function pzIdxToDate(i){ return new Date(PZ_BASE + i*86400000); }
 function pzFmtISO(d){ return d.toISOString().slice(0,10); }
@@ -821,18 +832,38 @@ function pzFmtPct(x,n){
 }
 
 function pzInit(){
-  var chSet={}, ufSet={}, carSet={};
+  var chSet={}, ufSet={}, carSet={}, mesSet={};
+  pzDmin=Infinity; pzDmax=-Infinity;   // zera: senão o intervalo só cresce a cada recarga
   for(var i=0;i<PZ_DATA.rows.length;i++){
     var r=PZ_DATA.rows[i];
-    if(r[7]===0){ if(r[0]<pzDmin)pzDmin=r[0]; if(r[0]>pzDmax)pzDmax=r[0]; }
+    if(r[7]===0){ if(r[0]<pzDmin)pzDmin=r[0]; if(r[0]>pzDmax)pzDmax=r[0];
+      var _d=pzIdxToDate(r[0]); mesSet[_d.getUTCFullYear()+'-'+('0'+(_d.getUTCMonth()+1)).slice(-2)]=1; }
     chSet[r[5]]=1; ufSet[r[2]]=1; carSet[r[4]]=1;
   }
+  if(!isFinite(pzDmin)){ pzDmin=0; pzDmax=Math.round((Date.now()-PZ_BASE)/86400000); }
   var chS=document.getElementById('pzChan'), ufS=document.getElementById('pzUf'), carS=document.getElementById('pzCar');
+  // LIMPA antes de repopular (senão acumula opções antigas, ex.: nomes de transportadora que mudaram)
+  var vCh=chS.value, vUf=ufS.value, vCar=carS.value;
+  chS.innerHTML='<option value=&quot;&quot;>Todos</option>';
+  ufS.innerHTML='<option value=&quot;&quot;>Todos</option>';
+  carS.innerHTML='<option value=&quot;&quot;>Todas</option>';
   Object.keys(chSet).map(Number).sort(function(a,b){return a-b;}).forEach(function(i){ chS.insertAdjacentHTML('beforeend','<option value=&quot;'+i+'&quot;>'+PZ_DATA.channels[i]+'</option>'); });
   Object.keys(ufSet).sort().forEach(function(u){ ufS.insertAdjacentHTML('beforeend','<option value=&quot;'+u+'&quot;>'+u+'</option>'); });
   Object.keys(carSet).map(Number).sort(function(a,b){return a-b;}).forEach(function(i){ carS.insertAdjacentHTML('beforeend','<option value=&quot;'+i+'&quot;>'+PZ_DATA.carriers[i]+'</option>'); });
-  var di=document.getElementById('pzIni'), df=document.getElementById('pzFim');
-  di.value=pzFmtISO(pzIdxToDate(pzDmin)); df.value=pzFmtISO(pzIdxToDate(pzDmax));
+  try{ chS.value=vCh; ufS.value=vUf; carS.value=vCar; }catch(e){}
+  // meses fechados disponíveis (mais recente primeiro)
+  var mS=document.getElementById('pzMes');
+  if(mS){ var vM=mS.value;
+    mS.innerHTML='<option value=&quot;&quot;>Período livre</option>';
+    Object.keys(mesSet).sort().reverse().forEach(function(k){ var pp=k.split('-');
+      mS.insertAdjacentHTML('beforeend','<option value=&quot;'+k+'&quot;>'+PZ_MESES[+pp[1]]+'/'+pp[0]+'</option>'); });
+    try{ mS.value=vM; }catch(e){}
+  }
+  // só preenche as datas se VOCÊ ainda não escolheu (não sobrescreve sua seleção nas recargas)
+  if(!pzUserDates){
+    var di=document.getElementById('pzIni'), df=document.getElementById('pzFim');
+    di.value=pzFmtISO(pzIdxToDate(pzDmin)); df.value=pzFmtISO(pzIdxToDate(pzDmax));
+  }
   pzInited=true;
 }
 
