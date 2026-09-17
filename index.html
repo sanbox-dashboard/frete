@@ -747,6 +747,7 @@ tfoot td:first-child{text-align:left;}
 #loginBtn:hover{background:#ea6c00;}
 #loginErr{font-size:.68rem;color:#f87171;margin-top:10px;min-height:16px;}
 </style>
+<script src=&quot;https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js&quot;></script>
 </head>
 <body>
 
@@ -759,6 +760,7 @@ tfoot td:first-child{text-align:left;}
     <div class=&quot;hr&quot;>
       <div class=&quot;live&quot;><span class=&quot;dot&quot;></span> Dados Intelipost</div>
       <button class=&quot;btn-sm&quot; id=&quot;pzRefresh&quot; onclick=&quot;pzForceUpdate()&quot; style=&quot;margin-left:8px&quot;>&amp;#8635; Atualizar agora</button>
+      <button class=&quot;btn-sm&quot; id=&quot;pzXls&quot; onclick=&quot;pzExport()&quot; style=&quot;margin-left:6px&quot; title=&quot;Gera um Excel com resumo regional, por transportadora, por CEP/município e a base — respeitando os filtros&quot;>&amp;#11015; Exportar Excel</button>
     </div>
   </div>
   <div style=&quot;display:flex;flex-direction:column;gap:9px&quot;>
@@ -987,6 +989,95 @@ function renderPrazos(){
     'Atraso (dias corridos) = data de entrega − &quot;Entrega prev. (Transp.)&quot; para entregues; = hoje − prev. para em aberto. Positivo = atrasado; ≤ 0 = no prazo. Filtro de período pela data de entrega (ou prevista, se em aberto). Capital = cidade destino igual à capital da UF (DF = capital). Marketplace = canal de venda.';
 }
 
+
+/* ═══════════ EXPORTAÇÃO EXCEL (respeita os filtros da tela) ═══════════ */
+function pzCep(n){ if(!n) return ''; var s=String(n); while(s.length<8) s='0'+s; return s.slice(0,5)+'-'+s.slice(5); }
+function pzP90(arr){ // menor acréscimo (dias corridos) p/ atingir 90% de cumprimento
+  if(!arr.length) return null;
+  var a=arr.map(function(v){return v>0?v:0;}).sort(function(x,y){return x-y;});
+  return a[Math.min(a.length-1, Math.max(0, Math.ceil(0.9*a.length)-1))];
+}
+function pzX(){ return {n:0,late:0,sum:0,st:0,tn:0,pm:0,pn:0,d:[],cepMin:null,cepMax:null}; }
+function pzXadd(a,r){
+  a.n++; a.sum+=r[1]; if(r[1]>0)a.late++; a.d.push(r[1]);
+  if(r[7]===0 &amp;&amp; r[6]!=null &amp;&amp; r[6]!==0){ a.st+=r[6]; a.tn++; }
+  if(r[10]!=null &amp;&amp; r[10]>=0){ a.pm+=r[10]; a.pn++; }
+  if(r[8]){ if(a.cepMin==null||r[8]<a.cepMin)a.cepMin=r[8]; if(a.cepMax==null||r[8]>a.cepMax)a.cepMax=r[8]; }
+}
+function pzXrow(a){ // colunas numéricas padrão
+  return [a.n, a.late, a.n?a.late/a.n:null, a.pn?a.pm/a.pn:null, a.tn?a.st/a.tn:null, a.n?a.sum/a.n:null, pzP90(a.d)];
+}
+var PZ_XH=['Total de envios','Total de atrasos','% de atraso','Prazo prometido médio (dias)','Trânsito médio (dias)','Prazo médio de atraso (dias)','Prazo adicional P90 (dias)'];
+function pzSheet(title, sub, header, body, widths){
+  var aoa=[[title],[sub],[],header].concat(body);
+  var ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=(widths||header.map(function(){return 16;})).map(function(w){return {wch:w};});
+  ws['!freeze']={xSplit:0,ySplit:4};
+  // formatos: % e decimais
+  var range=XLSX.utils.decode_range(ws['!ref']);
+  for(var R=4;R<=range.e.r;R++){ for(var C=0;C<header.length;C++){
+    var cell=ws[XLSX.utils.encode_cell({r:R,c:C})]; if(!cell||typeof cell.v!=='number') continue;
+    var h=header[C]; if(/^%/.test(h)) cell.z='0.0%'; else if(/médio|adicional/i.test(h)) cell.z='0.0';
+  }}
+  return ws;
+}
+function pzExport(){
+  if(typeof XLSX==='undefined'){ alert('Biblioteca Excel ainda carregando — tente de novo em 2 segundos.'); return; }
+  var rows=pzFilter();
+  if(!rows.length){ alert('Nenhum pedido no filtro atual.'); return; }
+  var di=document.getElementById('pzIni').value, df=document.getElementById('pzFim').value;
+  var carSel=document.getElementById('pzCar'), chSel=document.getElementById('pzChan');
+  var sub='Base: '+(pzMode==='merged'?'entregues + em aberto fora do prazo':'só entregues')+' · período '+di+' a '+df+
+    (carSel.value!==''?' · transportadora '+carSel.options[carSel.selectedIndex].text:' · todas as transportadoras')+
+    (chSel.value!==''?' · canal '+chSel.options[chSel.selectedIndex].text:'')+
+    ' · Atraso = entrega − prev. transportadora (dias corridos; ≤0 = no prazo). Prazo adicional = menor acréscimo p/ 90% de cumprimento.';
+  var cities=PZ_DATA.cities||[];
+  var temCep=rows.some(function(r){return r[8];});
+
+  // 1) Resumo regional: UF × Capital/Interior
+  var reg={}, ufOrder={};
+  rows.forEach(function(r){ var k=r[2]+' - '+(r[3]===1?'Capital':'Interior'); if(!reg[k])reg[k]=pzX(); pzXadd(reg[k],r);
+    var kt=r[2]+' - Total'; if(!reg[kt])reg[kt]=pzX(); pzXadd(reg[kt],r); ufOrder[r[2]]=(ufOrder[r[2]]||0)+1; });
+  var tot=pzX(); rows.forEach(function(r){pzXadd(tot,r);});
+  var ufs=Object.keys(ufOrder).sort(function(a,b){return ufOrder[b]-ufOrder[a];});
+  var regBody=[];
+  ufs.forEach(function(u){ ['Capital','Interior','Total'].forEach(function(t){ var k=u+' - '+t; if(reg[k]&amp;&amp;reg[k].n) regBody.push([k].concat(pzXrow(reg[k]))); }); });
+  regBody.push(['Total - Geral'].concat(pzXrow(tot)));
+  var ws1=pzSheet('Resumo regional dos prazos de entrega', sub, ['Região'].concat(PZ_XH), regBody, [20,16,16,12,26,20,26,24]);
+
+  // 2) Por transportadora × UF × Capital/Interior
+  var car={}, carTot={};
+  rows.forEach(function(r){ var c=PZ_DATA.carriers[r[4]]; var k=c+'|'+r[2]+'|'+(r[3]===1?'Capital':'Interior');
+    if(!car[k])car[k]=pzX(); pzXadd(car[k],r); if(!carTot[c])carTot[c]=pzX(); pzXadd(carTot[c],r); });
+  var carBody=[];
+  Object.keys(carTot).sort(function(a,b){return carTot[b].n-carTot[a].n;}).forEach(function(c){
+    Object.keys(car).filter(function(k){return k.split('|')[0]===c;}).sort().forEach(function(k){ var p=k.split('|'); carBody.push([c,p[1],p[2]].concat(pzXrow(car[k]))); });
+    carBody.push([c,'Todos','Total'].concat(pzXrow(carTot[c])));
+  });
+  carBody.push(['Total - Geral','','' ].concat(pzXrow(tot)));
+  var ws2=pzSheet('Prazos por transportadora', sub, ['Transportadora','UF','Capital / Interior'].concat(PZ_XH), carBody, [30,6,16,16,16,12,26,20,26,24]);
+
+  // 3) Análise por CEP / município
+  var cep={};
+  rows.forEach(function(r){ var cid=r[9]!=null?(cities[r[9]]||''):''; var k=r[2]+'|'+(r[3]===1?'CAPITAL':'INTERIOR')+'|'+(cid||'(sem município)'); if(!cep[k])cep[k]=pzX(); pzXadd(cep[k],r); });
+  var cepBody=Object.keys(cep).sort().map(function(k){ var p=k.split('|'), a=cep[k];
+    return [pzCep(a.cepMin), pzCep(a.cepMax), p[2], p[0], p[1]].concat(pzXrow(a)); });
+  var ws3=pzSheet('Análise de prazos por faixa de CEP / município', temCep?sub:(sub+' · ATENÇÃO: CEP/município ainda não vieram do Web App — reimplante o Apps Script (Implantar → Gerenciar → Editar → Nova versão).'),
+    ['CEP Inicial','CEP Final','Município destino','UF','Capital / interior'].concat(PZ_XH), cepBody, [12,12,28,6,16,16,16,12,26,20,26,24]);
+
+  // 4) Base (uma linha por pedido)
+  var base=rows.map(function(r){ return [pzFmtISO(pzIdxToDate(r[0])), r[7]===0?'Entregue':'Em aberto', r[1], r[1]>0?'Atrasado':'No prazo', r[2], r[3]===1?'Capital':'Interior',
+    r[9]!=null?(cities[r[9]]||''):'', r[8]?pzCep(r[8]):'', PZ_DATA.carriers[r[4]], PZ_DATA.channels[r[5]], (r[10]!=null&amp;&amp;r[10]>=0)?r[10]:'', (r[7]===0&amp;&amp;r[6])?r[6]:'']; });
+  var ws4=pzSheet('Base de pedidos (filtro atual)', sub, ['Data (entrega ou prevista)','Situação','Atraso (dias)','Status prazo','UF','Capital / Interior','Município','CEP','Transportadora','Canal','Prazo prometido (dias)','Trânsito (dias)'], base, [16,11,12,12,6,14,24,11,26,30,18,14]);
+
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws1, 'Resumo regional');
+  XLSX.utils.book_append_sheet(wb, ws2, 'Por transportadora');
+  XLSX.utils.book_append_sheet(wb, ws3, 'Análise por CEP');
+  XLSX.utils.book_append_sheet(wb, ws4, 'Base');
+  XLSX.writeFile(wb, 'prazos_entrega_'+di+'_'+df+'.xlsx');
+}
+
 /* ── carga ao vivo (opcional) ── */
 (function(){
   try{
@@ -1003,7 +1094,7 @@ function renderPrazos(){
 renderPrazos();
 </script>
 </body>
-</html>" title="Prazos de Entrega" style="width:100%;height:calc(100vh - 130px);border:0;background:var(--bg);display:block"></iframe>
+</html>&quot; title=&quot;Prazos de Entrega&quot; style=&quot;width:100%;height:calc(100vh - 130px);border:0;background:var(--bg);display:block"></iframe>
 </div>
 <div id="tab-fretev" class="tabpanel" style="display:none">
   <iframe id="frFrame" srcdoc="<!DOCTYPE html>
