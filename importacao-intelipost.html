@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Importação Intelipost</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+
+:root{
+--bg:#f5f6f4; --surface:#ffffff; --ink:#1b2320; --muted:#5f6b66; --line:#dde2df;
+--accent:#0d6b5b; --accent-ink:#ffffff; --accent-soft:#e1f1ed;
+--crit:#b3261e; --crit-soft:#fbe9e7; --warn:#8a5a00; --warn-soft:#fdf1d8; --ok:#1d6b34; --ok-soft:#e2f3e6;
+--font:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif; --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+--bg:#111715; --surface:#192220; --ink:#e7ede9; --muted:#9aa8a1; --line:#2b3733;
+--accent:#3fb59c; --accent-ink:#06211b; --accent-soft:#16332d;
+--crit:#ff8a80; --crit-soft:#3a1f1c; --warn:#f2c35e; --warn-soft:#37290c; --ok:#7fd196; --ok-soft:#173222; color-scheme:dark}}
+:root[data-theme="dark"]{
+--bg:#111715; --surface:#192220; --ink:#e7ede9; --muted:#9aa8a1; --line:#2b3733;
+--accent:#3fb59c; --accent-ink:#06211b; --accent-soft:#16332d;
+--crit:#ff8a80; --crit-soft:#3a1f1c; --warn:#f2c35e; --warn-soft:#37290c; --ok:#7fd196; --ok-soft:#173222; color-scheme:dark}
+*{box-sizing:border-box}
+html{color-scheme:light dark}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--font);
+padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+header h1{font-size:26px;line-height:1.2;margin:0 0 6px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+header p{margin:0;color:var(--muted);max-width:68ch}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px;min-width:0}
+.card h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 14px;font-weight:600;display:flex;gap:10px;align-items:center}
+.card h2 .n{font-family:var(--mono);background:var(--accent-soft);color:var(--accent);border-radius:4px;padding:1px 7px;letter-spacing:0}
+.drop{border:1.5px dashed var(--line);border-radius:8px;padding:26px 16px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;display:block}
+.drop:hover,.drop.over,.drop:focus-within{border-color:var(--accent);background:var(--accent-soft)}
+.drop input{position:absolute;opacity:0;width:1px;height:1px}
+.drop b{display:block;font-weight:600}
+.drop span{color:var(--muted);font-size:13px}
+.stats{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:14px;font-size:14px}
+.stats div{display:flex;gap:6px;align-items:baseline}
+.stats strong{font-family:var(--mono);font-size:17px;font-weight:500}
+.stats .l{color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+button,.btn{font:inherit;font-weight:500;border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:9px 16px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button.primary:hover{filter:brightness(1.07)}
+button:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.log{font-family:var(--mono);font-size:12.5px;color:var(--muted);margin-top:14px;display:flex;flex-direction:column;gap:3px;max-height:170px;overflow:auto}
+.log .done{color:var(--ok)} .log .err{color:var(--crit)}
+.bar{height:4px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:12px}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{position:sticky;top:0;background:var(--bg);text-align:left;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+tr.off td{opacity:.5}
+td.mono,.mono{font-family:var(--mono);font-size:12.5px}
+td.nw{white-space:nowrap}
+td select{font:inherit;font-size:13px;max-width:190px;padding:4px 6px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.chip{display:inline-block;font-size:11.5px;border-radius:99px;padding:1px 9px;margin:0 4px 4px 0}
+.chip.crit{background:var(--crit-soft);color:var(--crit)} .chip.warn{background:var(--warn-soft);color:var(--warn)} .chip.ok{background:var(--ok-soft);color:var(--ok)}
+.muted{color:var(--muted)} .small{font-size:12.5px}
+.sum{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 14px}
+.sum .pill{padding:6px 12px;border-radius:8px;border:1px solid var(--line);font-size:13.5px}
+.sum .pill strong{font-family:var(--mono);font-weight:500;margin-right:5px}
+details{border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+details>summary{cursor:pointer;padding:14px 20px;font-weight:500;list-style:none;display:flex;justify-content:space-between;gap:12px}
+details>summary::after{content:"+";font-family:var(--mono);color:var(--muted)}
+details[open]>summary::after{content:"−"}
+details .inner{padding:0 20px 20px;display:flex;flex-direction:column;gap:20px}
+.cfg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
+label.f input,.cfgtable input{font:inherit;font-size:13.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0;width:100%}
+.cfgtable{width:100%}
+.cfgtable td,.cfgtable th{padding:4px 6px;border:0}
+.cfgtable th{position:static;background:none}
+footer{color:var(--muted);font-size:12.5px;max-width:80ch}
+@media(max-width:560px){body{padding-block:18px 48px}header h1{font-size:22px}.card{padding:16px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>Importação Intelipost</h1>
+<p>Sobe o relatório do Kondado filtrado, a página acha os pedidos com frete pago zerado, completa cliente, endereço, NF e volume pelo Kondado e entrega o arquivo no modelo de importação da Intelipost.</p>
+</header>
+<section class="card" aria-labelledby="s1">
+<h2 id="s1"><span class="n">1</span>Relatório do Kondado</h2>
+<label class="drop" id="drop" tabindex="-1">
+<input type="file" id="file" accept=".xlsx,.xls,.csv">
+<b id="dropTitle">Arraste o arquivo aqui ou clique para escolher</b>
+<span>Planilha “geinsights” com Número ERP/NF na coluna B e Frete Pago pela Loja na coluna AE</span>
+</label>
+<div class="stats" id="stats" hidden>
+<div><strong id="stTotal">0</strong><span class="l">linhas no arquivo</span></div>
+<div><strong id="stZero">0</strong><span class="l">com frete pago zerado</span></div>
+<div><strong id="stSel">0</strong><span class="l">pedidos a preencher</span></div>
+</div>
+<div class="row" style="margin-top:16px">
+<button class="primary" id="run" disabled>Buscar no Kondado e preencher</button>
+<span class="muted small" id="runHint">Escolha o arquivo para começar.</span>
+</div>
+<div class="bar" id="bar" hidden><i id="barFill"></i></div>
+<div class="log" id="log" aria-live="polite"></div>
+</section>
+<section class="card" id="resultCard" hidden aria-labelledby="s2">
+<h2 id="s2"><span class="n">2</span>Conferência</h2>
+<div class="sum" id="sum"></div>
+<div class="tablewrap"><table id="tbl">
+<thead><tr><th></th><th>Pedido Intelipost</th><th>Canal</th><th>Destinatário</th><th>Transportadora (Tiny)</th><th>Método Intelipost</th><th>NF</th><th>Volume</th><th>Situação</th></tr></thead>
+<tbody id="tbody"></tbody>
+</table></div>
+<div id="missingBox" hidden style="margin-top:18px">
+<div class="small muted" style="margin-bottom:6px">Pedidos que não foram encontrados no Kondado (o Tiny pode ainda não ter sincronizado):</div>
+<div class="mono small" id="missingList"></div>
+</div>
+<div class="row" style="margin-top:18px">
+<button class="primary" id="dl">Baixar arquivo para a Intelipost</button>
+<button id="dlRep">Baixar relatório de pendências</button>
+<span class="muted small" id="dlHint"></span>
+</div>
+</section>
+<details id="cfgBox">
+<summary>Configurações (IDs dos métodos, canais e padrões)</summary>
+<div class="inner">
+<div>
+<div class="small muted" style="margin-bottom:8px">Transportadora do Tiny para método de entrega da Intelipost. O texto é procurado (sem acento, maiúsculo) em transportadora, forma de frete e forma de envio do pedido, nessa ordem.</div>
+<table class="cfgtable"><thead><tr><th>Texto a procurar (regex)</th><th>ID Intelipost</th><th>Nome</th></tr></thead><tbody id="cfgCarr"></tbody></table>
+</div>
+<div>
+<div class="small muted" style="margin-bottom:8px">Canal do Tiny para nome do canal de vendas na Intelipost.</div>
+<table class="cfgtable"><thead><tr><th>Texto a procurar</th><th>Canal na Intelipost</th></tr></thead><tbody id="cfgChan"></tbody></table>
+</div>
+<div class="cfg-grid" id="cfgDef"></div>
+<div class="row"><button id="cfgReset">Restaurar padrões</button><span class="muted small">As alterações ficam salvas neste navegador.</span></div>
+</div>
+</details>
+<footer>Fontes: planilhas do Kondado (Tiny: pedidos, itens, produtos e notas). Nada é enviado à Intelipost por esta página; o arquivo gerado é o mesmo modelo de “Importação de Pedidos”.</footer>
+</div>
+<script>
+'use strict';
+
+const KEY='AIzaSyCpFaibN_ct8r2ywjIlKByvZkxok5ytqXI';
+const SH_MAIN='1d4ORz_TloSJPBq8LZMrbD7YoPZSUFONExKg1heEBFrU';   // pedidos, itens, produtos
+const SH_NF  ='1AZ2zXJ3KsNfVmm_8eRUSZ6A8bcDxgHSiyakwMUC0HhE';   // notas mais recentes
+const TPL_HEADERS=[["DADOS DO PEDIDO", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "CLIENTE FINAL", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "VOLUME", null, null, null, null, null, null, null, null, null, null, "NOTA", null, null, null, null, null, null, null, null, "CENTRO DE DISTRIBUIÇÃO/REMETENTE", null, null, null, null, null, null, null, null, null, null, null, null, "Notificações", null, null, "ENTREGA VIA APP", null, null, "RESULTADO", null], ["Número do Pedido", "Número do Pedido de Venda", "Data de Criação", "ID da Cotação", "Custo do Frete (obrigatório se ID da Cotacao é vazio)", "Pedido Pai (caso re-envio/reversa)", "Canal de Vendas", "Pedido Agendado(true/false)", "Horário de Início - Janela de Entrega (para pedido agendado)", "Horário de Fim - Janela de Entrega (para pedido agendado)", "Data de Despacho", "Tipo de Pedidos", "Sub-tipo de Pedidos", "ID do método de envio", "Data Estimada de Entrega - Cliente", "Código de autorização – Reversa", "Código de verificação - Pickup", "Código de verificação - Dropoff", "Código de verificação - Return", "Nome", "Sobrenome", "Email", "Telefone", "Telefone Celular", "É Empresa?", "CPF/CNPJ", "I.E.", "Logradouro", "Número", "Informação adicional", "Referência", "Bairro", "Cidade", "Estado", "CEP", "Pais", "Número do Volume", "Nome do Volume", "Peso (Kg)", "Tipo do Volume", "Largura (cm)", "Altura (cm)", "Comprimento (cm)", "Natureza do Produto", "Quantidade", "É isento de ICMS (true/false)", "Código de Rastreamento", "Série da Nota", "Número da Nota", "Chave da Nota", "Data de Emissão da Nota", "Valor da Nota", "Valor dos Produtos", "CFOP", "Protocolo", "Tipo", "Código do CD (obrigatório para Multi CD)", "CNPJ do CD (obrigatório para Multi CD)", "Nome do CD", "Telefone do CD", "E-mail do CD", "Logradouro do CD", "Número do CD", "Informações adicionais do Endereço do CD", "Referência do Endreço do CD", "CEP do CD", "Cidade do CD", "Bairro do CD", "Código do Estado do CD", "WhatsApp (true/false)", " Email (true/false)", "SMS  (true/false)", "CPF do motorista", "Placa do veículo", "Ordem de atendimento", "Retorno", "Status"], ["order_number", "sales_order_number", "created", "quote_id", "customer_shipping_costs", "parent_shipment_order_number", "sales_channel", "scheduled", "scheduling_window_start", "scheduling_window_end", "shipped_date", "shipment_order_type", "shipment_order_sub_type", "delivery_method_id", "estimated_delivery_date", "return_authorization_code", "verification_pickup", "verification_dropoff", "verification_return", "first_name", "last_name", "email", "phone", "cellphone", "is_company", "federal_tax_payer_id", "state_tax_payer_id", "shipping_address", "shipping_number", "shipping_additional", "shipping_reference", "shipping_quarter", "shipping_city", "shipping_state", "shipping_zip_code", "shipping_country", "shipment_order_volume_number", "volume_name", "weight", "volume_type_code", "width", "height", "length", "products_nature", "products_quantity", "is_icms_exempt", "tracking_code", "invoice_series", "invoice_number", "invoice_key", "invoice_date", "invoice_total_value", "invoice_products_value", "invoice_cfop", "invoice_protocol", "invoice_type", "origin_warehouse_code", "origin_federal_tax_payer_id", "origin_name", "origin_customer_phone", "origin_customer_email", "origin_street", "origin_number", "origin_additional", "origin_reference", "origin_zip_code", "origin_city", "origin_quarter", "origin_state_code", "whatsapp_optin", "email_optin", "sms_optin", "carrier_driver_federal_tax_id", "vehicle_licence_plate", "planning_order", null, null]];
+const TPL_MERGES=["A1:O1","T1:AJ1","AK1:AU1","AV1:BB1","BE1:BQ1","BU1:BW1","BX1:BY1","BX2:BX3","BY2:BY3"];
+const NCOL=77;
+const DEFAULT_CFG={
+carriers:[
+{re:'TEX COURIER|TOTAL ?EXPRESS|TOTALEXPRESS|^TOTAL$',id:4,nome:'Total Express'},
+{re:'TRILOG',id:21211,nome:'Trilog Express'},
+{re:'BRASIL ?WEB',id:14862,nome:'Brasil Web Standard'},
+{re:'ALFA',id:67,nome:'Alfa Transportes'},
+{re:'MMA',id:216,nome:'MMA Cargas Expressas Standard'},
+{re:'ATUAL',id:33,nome:'Atual Cargas Standard'},
+{re:'TECMAR',id:307,nome:'Tecmar Standard'},
+{re:'RIO ?EXPRESS',id:20785,nome:'Rio Express Cargas'},
+{re:'JAMEF',id:23,nome:'Jamef Standard'},
+{re:'JADLOG',id:22,nome:'JadLog Standard'},
+{re:'TNT',id:25,nome:'Tnt Standard'},
+{re:'SEDEX',id:2,nome:'Correios Sedex'},
+{re:'CORREIOS|\\bPAC\\b',id:1,nome:'Correios PAC'}
+],
+channels:[
+{k:'SHOPEE',v:'Shopee'},{k:'AMAZON',v:'Amazon'},{k:'MAGAZINE LUIZA',v:'Magalu Marketplace'},{k:'MAGALU',v:'Magalu Marketplace'},
+{k:'CASAS BAHIA',v:'Casas Bahia'},{k:'MERCADO LIVRE',v:'Mercado Livre'},{k:'',v:'Sanbox Eletronicos'}
+],
+defaults:{
+nature:'Eletrodomésticos', weight:5, dimW:30, dimH:30, dimL:30, country:'Brasil',
+cdCode:'', cdCnpj:'', cdName:'', cdStreet:'', cdNumber:'', cdQuarter:'', cdCity:'', cdZip:'', cdState:''
+}
+};
+const DEF_LABELS={nature:'Natureza do produto (se não vier do Tiny)',weight:'Peso padrão (kg)',dimW:'Largura padrão (cm)',dimH:'Altura padrão (cm)',dimL:'Comprimento padrão (cm)',country:'País',
+cdCode:'Código do CD',cdCnpj:'CNPJ do CD',cdName:'Nome do CD',cdStreet:'Logradouro do CD',cdNumber:'Número do CD',cdQuarter:'Bairro do CD',cdCity:'Cidade do CD',cdZip:'CEP do CD',cdState:'UF do CD'};
+let CFG=loadCfg();
+function clone(o){return JSON.parse(JSON.stringify(o))}
+function loadCfg(){
+try{const s=localStorage.getItem('impIntelipost_cfg_v1'); if(s){const c=JSON.parse(s); return {carriers:c.carriers||clone(DEFAULT_CFG.carriers),channels:c.channels||clone(DEFAULT_CFG.channels),defaults:Object.assign(clone(DEFAULT_CFG.defaults),c.defaults||{})}}}catch(e){}
+return clone(DEFAULT_CFG);
+}
+function saveCfg(){try{localStorage.setItem('impIntelipost_cfg_v1',JSON.stringify(CFG))}catch(e){}}
+
+const $=id=>document.getElementById(id);
+const norm=s=>String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+const digits=s=>String(s==null?'':s).replace(/\D/g,'');
+const num=s=>{if(s==null||s==='')return 0;let t=String(s).trim();if(t.includes(',')&&!t.includes('.'))t=t.replace(',','.');else if(t.includes(',')&&t.includes('.'))t=t.replace(/\./g,'').replace(',','.');const n=parseFloat(t);return isFinite(n)?n:0};
+const colL=n=>{let s='';n++;while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=Math.floor((n-1)/26)}return s};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function parseDate(s,h,mi){
+if(!s)return null; let m=String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); let y,mo,d;
+if(m){mo=+m[1];d=+m[2];y=+m[3]} else {m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); if(!m)return null; y=+m[1];mo=+m[2];d=+m[3]}
+if(!y||y<2000)return null; return new Date(y,mo-1,d,h||0,mi||0,0);
+}
+const today=()=>{const d=new Date();return new Date(d.getFullYear(),d.getMonth(),d.getDate(),9,0,0)};
+function log(msg,cls){const d=document.createElement('div');if(cls)d.className=cls;d.textContent=msg;$('log').appendChild(d);$('log').scrollTop=1e9}
+function progress(p){$('bar').hidden=false;$('barFill').style.width=Math.round(p*100)+'%'}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+async function fetchJson(url){
+let last;
+for(let t=0;t<5;t++){
+try{const r=await fetch(url); if(r.ok)return await r.json(); last=new Error('HTTP '+r.status); if(r.status!==429&&r.status<500)break;}catch(e){last=e}
+await sleep(1200*(t+1));
+}
+throw last;
+}
+async function batchGet(sheetId,ranges){
+const out=[];
+for(let i=0;i<ranges.length;i+=25){
+const part=ranges.slice(i,i+25);
+const url=`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchGet?`+part.map(r=>'ranges='+encodeURIComponent(r)).join('&')+`&key=${KEY}`;
+const j=await fetchJson(url);
+out.push(...j.valueRanges.map(v=>v.values||[]));
+}
+return out;
+}
+function mergeBlocks(rowNums,gap){
+const rs=[...new Set(rowNums)].filter(Boolean).sort((a,b)=>a-b); const blocks=[];
+for(const r of rs){const b=blocks[blocks.length-1]; if(b&&r-b[1]<=gap)b[1]=r; else blocks.push([r,r])}
+return blocks;
+}
+
+async function fetchRows(sheetId,tab,header,rowNums,gap=120){
+const last=colL(header.length-1), blocks=mergeBlocks(rowNums,gap), map=new Map();
+if(!blocks.length)return map;
+const data=await batchGet(sheetId,blocks.map(([s,e])=>`${tab}!A${s}:${last}${e}`));
+blocks.forEach(([s],bi)=>{data[bi].forEach((arr,k)=>{const o={};header.forEach((h,i)=>o[h]=arr[i]==null?'':arr[i]);map.set(s+k,o)})});
+return map;
+}
+async function fetchColumn(sheetId,tab,header,name){
+const i=header.indexOf(name); if(i<0)return [];
+const c=colL(i); const [col]=await batchGet(sheetId,[`${tab}!${c}:${c}`]); return col.map(v=>v[0]==null?'':v[0]);
+}
+async function fetchHeader(sheetId,tab){const [h]=await batchGet(sheetId,[`${tab}!1:1`]);return h[0]||[]}
+
+let SRC=null; // {total, zero:[{order,canal,status,metodo,nfCol}]}
+function readKondado(buf){
+const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]];
+const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
+if(aoa.length<2)throw new Error('Arquivo sem linhas.');
+const H=aoa[0].map(norm);
+const find=(txt,fallback)=>{const i=H.findIndex(h=>h.includes(norm(txt)));return i>=0?i:fallback};
+const iB=find('NUMERO ERP/NF',1), iAE=find('FRETE PAGO PELA LOJA',30), iNF=(()=>{const i=H.findIndex(h=>h.includes('NF-E'));return i>=0?i:2})(), iCanal=find('CANAL DE VENDA',5), iSt=find('STATUS',9), iMet=find('METODO DE ENVIO',8), iCli=find('CLIENTE',4);
+const rows=aoa.slice(1).filter(r=>r&&r[iB]!=null&&String(r[iB]).trim()!=='');
+const zero=[]; const seen=new Set();
+for(const r of rows){
+const v=r[iAE]; const n=(v==null||v==='')?0:num(v);
+if(Math.abs(n)<0.005){
+const order=String(r[iB]).trim(); if(seen.has(order))continue; seen.add(order);
+zero.push({order,canal:r[iCanal]||'',status:r[iSt]||'',metodo:r[iMet]||'',cliente:r[iCli]||'',nfCol:r[iNF]==null?'':String(r[iNF]).trim()});
+}
+}
+return {total:rows.length,zero,fixedColumns:(iB===1&&iAE===30)};
+}
+
+function carrierFor(p){
+const fields=[p.nome_transportador,p.forma_frete,p.forma_envio];
+for(const f of fields){
+const t=norm(f); if(!t||t==='X')continue;
+for(const c of CFG.carriers){let re;try{re=new RegExp(c.re,'i')}catch(e){continue} if(re.test(t))return {id:+c.id,nome:c.nome}}
+}
+return null;
+}
+function channelFor(p,src){
+const t=norm(p.ecommerce_nomeecommerce||p.ecommerce_canalvenda||src.canal||'');
+for(const c of CFG.channels){if(c.k&&t.includes(norm(c.k)))return c.v}
+const blank=CFG.channels.find(c=>!c.k); return blank?blank.v:'';
+}
+function intelipostOrderNumber(src,p,nota){
+const ecom=(p.pedido_numero_ecommerce||p.ecommerce_numeropedidoecommerce||'').trim();
+if(!ecom){ // vendas diretas (Outlet): o pedido na Intelipost leva o número da NF
+return nota&&nota.numero?String(nota.numero):(src.nfCol?src.nfCol.split('-')[0]:p.pedido_numero);
+}
+if(/^LU-/i.test(ecom))return ecom.replace(/^LU-/i,'');
+if(/^\d{11}$/.test(ecom)&&norm(p.ecommerce_nomeecommerce).includes('CASAS BAHIA'))return ecom.slice(0,9);
+return ecom;
+}
+function splitName(full){
+const t=String(full||'').trim().replace(/\s+/g,' ').split(' ').filter(Boolean);
+if(!t.length)return ['',''];
+if(t.length===1)return [t[0],'-'];
+return [t[0],t.slice(1).join(' ')];
+}
+function fmtCep(s){const d=digits(s);return d.length===8?d.slice(0,5)+'-'+d.slice(5):d}
+function buildOrder(src,p,items,prods,nota){
+const o={src,p,nota,issues:[],include:true};
+const pick=(a,b)=>(a&&String(a).trim())?a:b;
+const d=p;
+o.name=pick(d.endereco_entrega_nome_destinatario,d.cliente_nome);
+const [fn,ln]=splitName(o.name); o.fn=fn; o.ln=ln;
+o.doc=digits(pick(d.endereco_entrega_cpf_cnpj,d.cliente_cpf_cnpj));
+o.isCompany=o.doc.length===14;
+o.ie=digits(pick(d.endereco_entrega_ie,d.cliente_ie));
+o.email=(d.cliente_email||'').trim();
+const ph=[digits(pick(d.endereco_entrega_fone,d.cliente_fone))].filter(Boolean)[0]||'';
+o.phone=ph;
+o.street=pick(d.endereco_entrega_endereco,d.cliente_endereco)||'';
+o.number=(pick(d.endereco_entrega_numero,d.cliente_numero)||'S/N').toString().trim()||'S/N';
+o.compl=pick(d.endereco_entrega_complemento,d.cliente_complemento)||'';
+o.quarter=pick(d.endereco_entrega_bairro,d.cliente_bairro)||'';
+o.city=pick(d.endereco_entrega_cidade,d.cliente_cidade)||'';
+o.uf=pick(d.endereco_entrega_uf,d.cliente_uf)||'';
+o.cep=fmtCep(pick(d.endereco_entrega_cep,d.cliente_cep));
+o.channel=channelFor(p,src);
+o.orderNumber=intelipostOrderNumber(src,p,nota);
+const car=carrierFor(p); o.carrierText=[p.nome_transportador,p.forma_frete].filter(x=>x&&x!=='X').join(' / ');
+o.methodId=car?car.id:'';
+// NF
+if(nota){o.nf={serie:nota.serie,numero:nota.numero,chave:nota.chaveacesso,data:nota.dataemissao,valor:nota.valor,produtos:nota.valorprodutos}}
+else {
+const m=String(src.nfCol||'').match(/^(\d+)(?:-(\d+))?/);
+o.nf=m?{serie:m[2]||'1',numero:m[1],chave:'',data:p.data_faturamento,valor:p.total_pedido,produtos:p.total_produtos}:{serie:'',numero:'',chave:'',data:'',valor:p.total_pedido,produtos:p.total_produtos};
+}
+// volume
+let qty=0,wTot=0,best=null,nature='';
+for(const it of items){
+const q=num(it.itens_quantidade)||1; qty+=q; const pr=prods.get(String(it.itens_id_produto));
+if(pr){wTot+=num(pr.peso_bruto)*q; const w=num(pr.larguraembalagem),h=num(pr.alturaembalagem),l=num(pr.comp);
+const vol=w*h*(l||1); if(!best||vol>best.vol)best={w,h,l,vol};
+if(!nature&&pr.categoria)nature=String(pr.categoria).split('>>')[0].trim();}
+}
+o.qty=qty||1; o.nature=nature||CFG.defaults.nature;
+const nv=Math.max(1,parseInt(nota&&nota.qtdvolumes,10)||1); o.nVol=nv;
+const wNota=nota?num(nota.pesobruto):0;
+o.weight=wNota>0?wNota:(wTot>0?wTot:0);
+o.dims=best||{w:0,h:0,l:0};
+o.dimsFallback=[];
+if(!o.weight){o.weight=num(CFG.defaults.weight);o.dimsFallback.push('peso')}
+if(!o.dims.w){o.dims.w=num(CFG.defaults.dimW);o.dimsFallback.push('largura')}
+if(!o.dims.h){o.dims.h=num(CFG.defaults.dimH);o.dimsFallback.push('altura')}
+if(!o.dims.l){o.dims.l=num(CFG.defaults.dimL);o.dimsFallback.push('comprimento')}
+if(!items.length)o.dimsFallback.push('itens');
+o.shipped=parseDate(p.data_envio,9)||parseDate(p.data_faturamento,9)||today();
+o.created=parseDate(p.pedido_data_pedido)||parseDate(p.data_faturamento)||today();
+o.shipCost=num(p.valor_frete);
+validate(o);
+return o;
+}
+function validate(o){
+const is=[]; const add=(lvl,txt)=>is.push({lvl,txt});
+if(!o.methodId)add('crit','sem método de entrega');
+if(!o.nf.numero)add('crit','sem número da NF');
+else if(!o.nota)add('warn','NF não está no Kondado');
+if(o.nf.numero&&!o.nf.chave)add('warn','sem chave da NF');
+if(!o.doc||(o.doc.length!==11&&o.doc.length!==14))add('crit','CPF/CNPJ inválido');
+if(!o.street||!o.city||!o.uf)add('crit','endereço incompleto');
+if(digits(o.cep).length!==8)add('crit','CEP inválido');
+if(o.dimsFallback.length)add('warn','padrão: '+o.dimsFallback.join(', '));
+if(o.nVol>1)add('warn',o.nVol+' volumes');
+if(/APROVADO|FATURADO/.test(norm(o.src.status)))add('warn','status: '+o.src.status);
+if(/PROPRIA/.test(norm(o.src.metodo)))add('warn','transportadora própria no canal');
+o.issues=is;
+}
+
+async function pipeline(zero){
+const T='tinyerp_pedidos_detalhes';
+log('Lendo índices de pedidos do Kondado…'); progress(.05);
+const hdr=await fetchHeader(SH_MAIN,T);
+const [cEcom,cNumEcom,cNum]=await Promise.all(['ecommerce_numeropedidoecommerce','pedido_numero_ecommerce','pedido_numero'].map(n=>fetchColumn(SH_MAIN,T,hdr,n)));
+const mapE=new Map(),mapN=new Map();
+const put=(m,col)=>col.forEach((v,i)=>{if(i>0&&v&&!m.has(v))m.set(v,i+1)});
+put(mapE,cEcom);put(mapE,cNumEcom);put(mapN,cNum);
+progress(.2);
+const found=[],missing=[];
+for(const s of zero){const r=mapE.get(s.order)||mapN.get(s.order); if(r)found.push({s,r}); else missing.push(s)}
+log(`${found.length} de ${zero.length} pedidos encontrados no Kondado.`,found.length?'done':'err');
+const pRows=await fetchRows(SH_MAIN,T,hdr,found.map(f=>f.r)); progress(.4);
+log('Buscando itens e produtos…');
+const ih=await fetchHeader(SH_MAIN,'tinyerp_pedidos_detalhes_itens');
+const idCol=await fetchColumn(SH_MAIN,'tinyerp_pedidos_detalhes_itens',ih,'id_pedido');
+const idsNeeded=new Set(found.map(f=>String(pRows.get(f.r).id_pedido)));
+const itRowNums=[]; idCol.forEach((v,i)=>{if(i>0&&idsNeeded.has(v))itRowNums.push(i+1)});
+const itRows=await fetchRows(SH_MAIN,'tinyerp_pedidos_detalhes_itens',ih,itRowNums);
+const itemsBy=new Map(); for(const o of itRows.values()){const k=String(o.id_pedido); if(!itemsBy.has(k))itemsBy.set(k,[]); itemsBy.get(k).push(o)}
+const ph=await fetchHeader(SH_MAIN,'tinyerp_produtos');
+const compKey=ph.find(h=>/^comprimento/.test(h))||'';
+const [pAll]=await batchGet(SH_MAIN,[`tinyerp_produtos!A2:${colL(ph.length-1)}`]);
+const prods=new Map(); pAll.forEach(arr=>{const o={};ph.forEach((h,i)=>o[h]=arr[i]==null?'':arr[i]);o.comp=compKey?o[compKey]:'';prods.set(String(o.id),o)});
+progress(.6);
+log('Buscando notas fiscais…');
+const notaIds=new Set(found.map(f=>String(pRows.get(f.r).id_nota_fiscal)).filter(x=>x&&x!=='0'));
+const notas=new Map();
+for(const sh of [SH_NF,SH_MAIN]){
+const left=[...notaIds].filter(id=>!notas.has(id)); if(!left.length)break;
+const nh=await fetchHeader(sh,'tinyerp_notas_detalhes');
+const col=await fetchColumn(sh,'tinyerp_notas_detalhes',nh,'id');
+const want=new Set(left); const rn=[]; col.forEach((v,i)=>{if(i>0&&want.has(v))rn.push(i+1)});
+const rows=await fetchRows(sh,'tinyerp_notas_detalhes',nh,rn,200);
+for(const o of rows.values())notas.set(String(o.id),o);
+}
+progress(.85);
+log(`${[...notaIds].filter(id=>notas.has(id)).length} de ${notaIds.size} notas encontradas.`,'done');
+const orders=found.map(({s,r})=>{
+const p=pRows.get(r); const items=itemsBy.get(String(p.id_pedido))||[]; const nota=notas.get(String(p.id_nota_fiscal))||null;
+return buildOrder(s,p,items,prods,nota);
+});
+progress(1);
+return {orders,missing};
+}
+
+function rowsFor(o){
+const D=CFG.defaults, out=[]; const n=o.nVol;
+const w=(o.weight/n); const baseQ=Math.max(1,Math.floor(o.qty/n)); let rem=Math.max(0,o.qty-baseQ*n);
+for(let v=1;v<=n;v++){
+const r=new Array(NCOL).fill(null); const q=baseQ+(rem>0?(rem--,1):0);
+const ph=o.phone;
+r[0]=o.orderNumber; r[1]=o.nf.numero||''; r[2]=o.created; r[4]=o.shipCost; r[6]=o.channel; r[7]='false';
+r[10]=o.shipped; r[11]='NORMAL'; r[13]=o.methodId===''?null:+o.methodId;
+r[19]=o.fn; r[20]=o.ln; r[21]=o.email||null;
+r[22]=ph.length===10?ph:(ph||null); r[23]=ph.length===11?ph:(ph||null);
+r[24]=o.isCompany?'true':'false'; r[25]=o.doc||null; r[26]=o.ie||null;
+r[27]=o.street; r[28]=o.number; r[29]=o.compl||null; r[31]=o.quarter||null; r[32]=o.city; r[33]=o.uf; r[34]=o.cep; r[35]=D.country||'Brasil';
+r[36]=v; r[38]=String(+w.toFixed(3)); r[39]='BOX'; r[40]=+o.dims.w; r[41]=+o.dims.h; r[42]=+o.dims.l; r[43]=o.nature; r[44]=q; r[45]='false';
+r[47]=o.nf.serie?(+o.nf.serie||o.nf.serie):null; r[48]=o.nf.numero?(+o.nf.numero||o.nf.numero):null; r[49]=o.nf.chave||null;
+r[50]=parseDate(o.nf.data,0)||null; r[51]=o.nf.valor!==''?num(o.nf.valor).toFixed(2):null; r[52]=o.nf.produtos!==''?num(o.nf.produtos).toFixed(2):null;
+r[56]=D.cdCode||null; r[57]=D.cdCnpj||null; r[58]=D.cdName||null; r[61]=D.cdStreet||null; r[62]=D.cdNumber||null; r[65]=D.cdZip||null; r[66]=D.cdCity||null; r[67]=D.cdQuarter||null; r[68]=D.cdState||null;
+r[69]='FALSE'; r[70]='FALSE'; r[71]='FALSE';
+out.push(r);
+}
+return out;
+}
+function exportXlsx(orders){
+const aoa=TPL_HEADERS.map(r=>r.slice());
+for(const o of orders)for(const r of rowsFor(o))aoa.push(r);
+const ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true});
+ws['!merges']=TPL_MERGES.map(a=>XLSX.utils.decode_range(a));
+ws['!cols']=Array.from({length:NCOL},(_,i)=>({wch:[0,1,2,10,13,14,19,20,21,27,32,49].includes(i)?(i===49?46:20):14}));
+for(const addr of Object.keys(ws)){const c=ws[addr]; if(c&&c.t==='d'){c.z=(c.v.getHours()||c.v.getMinutes())?'dd/mm/yyyy hh:mm':'dd/mm/yyyy'}}
+const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Sheet1');
+const d=new Date(); const stamp=d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+XLSX.writeFile(wb,`shipment_order_import_${stamp}.xlsx`,{cellDates:true});
+}
+function exportReport(res){
+const rows=[['Pedido (Kondado)','Pedido Intelipost','Canal','Destinatário','Cidade/UF','Transportadora (Tiny)','ID método','NF','Chave da NF','Situação','Pendências','No arquivo']];
+for(const o of res.orders)rows.push([o.src.order,o.orderNumber,o.channel,o.name,o.city+'/'+o.uf,o.carrierText,o.methodId,o.nf.numero,o.nf.chave,o.src.status,o.issues.map(i=>i.txt).join('; '),o.include?'sim':'não']);
+for(const s of res.missing)rows.push([s.order,'',s.canal,s.cliente,'','','','','',s.status,'não encontrado no Kondado','não']);
+const ws=XLSX.utils.aoa_to_sheet(rows); ws['!cols']=[22,22,18,28,20,30,10,10,46,18,50,10].map(w=>({wch:w}));
+const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Pendências'); XLSX.writeFile(wb,'pendencias_importacao_intelipost.xlsx');
+}
+
+let RES=null;
+const METHODS=()=>CFG.carriers.map(c=>({id:c.id,nome:c.nome}));
+function render(){
+const tb=$('tbody'); tb.innerHTML='';
+RES.orders.forEach((o,idx)=>{
+const crit=o.issues.some(i=>i.lvl==='crit');
+const tr=document.createElement('tr'); if(!o.include)tr.className='off';
+const opts=['<option value="">— escolher —</option>'].concat(METHODS().map(m=>`<option value="${m.id}" ${String(o.methodId)===String(m.id)?'selected':''}>${m.id} · ${esc(m.nome)}</option>`)).join('');
+tr.innerHTML=`<td><input type="checkbox" data-i="${idx}" class="inc" ${o.include?'checked':''} aria-label="Incluir ${esc(o.orderNumber)}"></td>
+<td class="mono">${esc(o.orderNumber)}<div class="muted small">${esc(o.src.order!==o.orderNumber?'Kondado: '+o.src.order:'')}</div></td>
+<td>${esc(o.channel)}</td>
+<td>${esc(o.name)}<div class="muted small">${esc(o.city)}/${esc(o.uf)} · ${esc(o.cep)}</div></td>
+<td>${esc(o.carrierText||'—')}</td>
+<td><select data-i="${idx}" class="meth" aria-label="Método de entrega">${opts}</select></td>
+<td class="mono nw">${esc(o.nf.numero||'—')}${o.nf.serie?'-'+esc(o.nf.serie):''}</td>
+<td class="mono small">${o.weight.toFixed(1)} kg<br>${o.dims.w}×${o.dims.h}×${o.dims.l}</td>
+<td>${o.issues.length?o.issues.map(i=>`<span class="chip ${i.lvl}">${esc(i.txt)}</span>`).join(''):'<span class="chip ok">pronto</span>'}</td>`;
+tb.appendChild(tr);
+});
+tb.querySelectorAll('.inc').forEach(el=>el.addEventListener('change',e=>{RES.orders[+e.target.dataset.i].include=e.target.checked;render()}));
+tb.querySelectorAll('.meth').forEach(el=>el.addEventListener('change',e=>{const o=RES.orders[+e.target.dataset.i];o.methodId=e.target.value;validate(o);render()}));
+const total=RES.orders.length, ready=RES.orders.filter(o=>!o.issues.some(i=>i.lvl==='crit')).length, warn=RES.orders.filter(o=>!o.issues.some(i=>i.lvl==='crit')&&o.issues.length).length, crit=total-ready, inc=RES.orders.filter(o=>o.include).length;
+$('sum').innerHTML=`<div class="pill"><strong>${total}</strong>encontrados</div><div class="pill"><strong>${ready}</strong>sem bloqueios</div><div class="pill"><strong>${warn}</strong>com avisos</div><div class="pill"><strong>${crit}</strong>com pendência que bloqueia</div><div class="pill"><strong>${RES.missing.length}</strong>não achados</div>`;
+$('missingBox').hidden=!RES.missing.length; $('missingList').textContent=RES.missing.map(m=>m.order).join('  ');
+$('dl').disabled=!inc; $('dlHint').textContent=inc?`${inc} pedido(s) no arquivo.`:'Marque ao menos um pedido.';
+}
+function applyDefaultInclude(){RES.orders.forEach(o=>{o.include=!o.issues.some(i=>i.lvl==='crit')})}
+async function handleFile(f){
+try{
+$('log').innerHTML=''; $('resultCard').hidden=true; RES=null;
+const buf=await f.arrayBuffer(); SRC=readKondado(buf);
+$('dropTitle').textContent=f.name; $('stats').hidden=false;
+$('stTotal').textContent=SRC.total; $('stZero').textContent=SRC.zero.length; $('stSel').textContent=SRC.zero.length;
+$('run').disabled=!SRC.zero.length;
+$('runHint').textContent=SRC.zero.length?'Pronto para buscar os dados no Kondado.':'Nenhuma linha com frete pago zerado neste arquivo.';
+if(!SRC.fixedColumns)log('Atenção: as colunas B e AE não estavam nas posições esperadas; usei os títulos das colunas.');
+}catch(e){log('Não consegui ler o arquivo: '+e.message,'err')}
+}
+$('file').addEventListener('change',e=>{if(e.target.files[0])handleFile(e.target.files[0])});
+const drop=$('drop');
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0]; if(f)handleFile(f)});
+$('run').addEventListener('click',async()=>{
+$('run').disabled=true; $('log').innerHTML=''; progress(0);
+try{
+RES=await pipeline(SRC.zero); applyDefaultInclude(); render(); $('resultCard').hidden=false;
+log('Pronto. Confira a tabela abaixo.','done'); $('resultCard').scrollIntoView({behavior:'smooth',block:'start'});
+}catch(e){log('Erro ao consultar o Kondado: '+e.message+'. Tente de novo em instantes.','err')}
+$('run').disabled=false;
+});
+$('dl').addEventListener('click',()=>exportXlsx(RES.orders.filter(o=>o.include)));
+$('dlRep').addEventListener('click',()=>exportReport(RES));
+
+function renderCfg(){
+$('cfgCarr').innerHTML=CFG.carriers.map((c,i)=>`<tr><td><input data-k="carriers" data-i="${i}" data-f="re" value="${esc(c.re)}" aria-label="Texto"></td><td><input data-k="carriers" data-i="${i}" data-f="id" value="${esc(c.id)}" inputmode="numeric" style="max-width:110px" aria-label="ID"></td><td><input data-k="carriers" data-i="${i}" data-f="nome" value="${esc(c.nome)}" aria-label="Nome"></td></tr>`).join('');
+$('cfgChan').innerHTML=CFG.channels.map((c,i)=>`<tr><td><input data-k="channels" data-i="${i}" data-f="k" value="${esc(c.k)}" placeholder="(qualquer outro)" aria-label="Texto"></td><td><input data-k="channels" data-i="${i}" data-f="v" value="${esc(c.v)}" aria-label="Canal"></td></tr>`).join('');
+$('cfgDef').innerHTML=Object.keys(DEF_LABELS).map(k=>`<label class="f">${DEF_LABELS[k]}<input data-k="defaults" data-f="${k}" value="${esc(CFG.defaults[k])}"></label>`).join('');
+$('cfgBox').querySelectorAll('input[data-k]').forEach(el=>el.addEventListener('change',e=>{
+const t=e.target, k=t.dataset.k, f=t.dataset.f; if(k==='defaults')CFG.defaults[f]=t.value; else CFG[k][+t.dataset.i][f]=(k==='carriers'&&f==='id')?(+t.value||t.value):t.value;
+saveCfg(); if(RES)render();
+}));
+}
+$('cfgReset').addEventListener('click',()=>{CFG=clone(DEFAULT_CFG);saveCfg();renderCfg();if(RES)render()});
+renderCfg();
+window.__imp={pipeline,rowsFor,exportXlsx,exportReport,CFG:()=>CFG,readKondado};
+</script>
+</body>
+</html>
