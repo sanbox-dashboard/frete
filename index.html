@@ -1065,10 +1065,15 @@ function pzExport(){
   var ws3=pzSheet('Análise de prazos por faixa de CEP / município', temCep?sub:(sub+' · ATENÇÃO: CEP/município ainda não vieram do Web App — reimplante o Apps Script (Implantar → Gerenciar → Editar → Nova versão).'),
     ['CEP Inicial','CEP Final','Município destino','UF','Capital / interior'].concat(PZ_XH), cepBody, [12,12,28,6,16,16,16,12,26,20,26,24]);
 
-  // 4) Base (uma linha por pedido)
-  var base=rows.map(function(r){ return [pzFmtISO(pzIdxToDate(r[0])), r[7]===0?'Entregue':'Em aberto', r[1], r[1]>0?'Atrasado':'No prazo', r[2], r[3]===1?'Capital':'Interior',
-    r[9]!=null?(cities[r[9]]||''):'', r[8]?pzCep(r[8]):'', PZ_DATA.carriers[r[4]], PZ_DATA.channels[r[5]], (r[10]!=null&amp;&amp;r[10]>=0)?r[10]:'', (r[7]===0&amp;&amp;r[6])?r[6]:'']; });
-  var ws4=pzSheet('Base de pedidos (filtro atual)', sub, ['Data (entrega ou prevista)','Situação','Atraso (dias)','Status prazo','UF','Capital / Interior','Município','CEP','Transportadora','Canal','Prazo prometido (dias)','Trânsito (dias)'], base, [16,11,12,12,6,14,24,11,26,30,18,14]);
+  // 4) Base (uma linha por pedido) — datas reconstruídas: prevista = referência − atraso; envio = entrega − trânsito
+  var base=rows.map(function(r){
+    var ent=r[7]===0, ref=r[0], prev=ref-r[1], dEnt=ent?ref:null, env=null;
+    if(ent &amp;&amp; r[6]) env=ref-r[6]; else if(r[10]!=null &amp;&amp; r[10]>=0) env=prev-r[10];
+    var fd=function(i){ return i==null?'':pzFmtISO(pzIdxToDate(i)); };
+    return [r[11]!=null?String(r[11]):'', fd(env), fd(prev), fd(dEnt), ent?'Entregue':'Em aberto', r[1], r[1]>0?'Atrasado':'No prazo', r[2], r[3]===1?'Capital':'Interior',
+      r[9]!=null?(cities[r[9]]||''):'', r[8]?pzCep(r[8]):'', PZ_DATA.carriers[r[4]], PZ_DATA.channels[r[5]], (r[10]!=null&amp;&amp;r[10]>=0)?r[10]:'', (ent&amp;&amp;r[6])?r[6]:'']; });
+  var ws4=pzSheet('Base de pedidos (filtro atual)', sub+' · Atraso = Data de entrega − Data prevista (em aberto: hoje − prevista).',
+    ['Nº pedido','Data de envio','Data prevista (transp.)','Data de entrega','Situação','Atraso (dias)','Status prazo','UF','Capital / Interior','Município','CEP','Transportadora','Canal','Prazo prometido (dias)','Trânsito (dias)'], base, [18,13,16,13,11,12,12,6,14,24,11,26,30,18,14]);
 
   var wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws1, 'Resumo regional');
@@ -7897,14 +7902,24 @@ function jwtExp(t){try{return JSON.parse(atob(t.split('.')[1])).exp*1000}catch(e
 function setBar(p){document.getElementById('bar').style.width=(Math.max(0,Math.min(1,p))*100).toFixed(1)+'%';}
 function prog(t){document.getElementById('progressTxt').textContent=t;}
 
+// Login na Intelipost agora é feito NO SERVIDOR (Apps Script): renova o token sozinho, sem depender do seu computador.
+// O selo abaixo só mostra o estado dessa conexão (consulta ?action=status do Web App).
+let SRV_ST={ok:null,exp:0,erro:'',at:0};
 function tokenStatus(){
-  const b=document.getElementById('tokBadge');const t=store.token;
-  if(!t){b.className='badge err';b.textContent='Sem token';return false;}
-  const exp=jwtExp(t);const ok=exp>Date.now();
-  b.className='badge '+(ok?'ok':'err');
-  b.textContent=ok?('Conectado · expira '+new Date(exp).toLocaleString('pt-BR')):'Token expirado';
-  return ok;
+  const b=document.getElementById('tokBadge'); if(!b) return true;
+  if(SRV_ST.ok===true){ b.className='badge ok'; b.title='Login automático no servidor · token válido até '+(SRV_ST.exp?new Date(SRV_ST.exp).toLocaleString('pt-BR'):'—')+' (renova sozinho)'; b.textContent='Intelipost online · login automático'; return true; }
+  if(SRV_ST.ok===false){ b.className='badge err'; b.title=SRV_ST.erro||'Falha ao consultar o servidor'; b.textContent='Intelipost: login do servidor falhou'; return false; }
+  b.className='badge'; b.textContent='Intelipost: verificando…'; return true;
 }
+async function checkServerLogin(){
+  try{
+    const r=await fetch(WEBAPP_URL+'?action=status&t='+Date.now(),{cache:'no-store'}); const j=await r.json();
+    // Web App antigo (sem ?action=status) devolve outro JSON sem o campo "ok": considera ativo
+    SRV_ST={ok:(j.ok===undefined?true:!!j.ok), exp:j.expiraEm?Date.parse(j.expiraEm):0, erro:j.erro||'', at:Date.now()};
+  }catch(e){ SRV_ST={ok:false,exp:0,erro:'Sem resposta do Web App ('+((e&&e.message)||e)+')',at:Date.now()}; }
+  tokenStatus();
+}
+setTimeout(checkServerLogin,800); setInterval(checkServerLogin,600000);
 function saveToken(){
   const t=document.getElementById('tokInput').value.trim();
   const info=document.getElementById('tokInfo');
@@ -8306,7 +8321,7 @@ async function findHistoricalQuote(d, carrier){
 }
 async function enrichQuotes(onlyMissing){
   const rows=store.rows;if(!rows.length){alert('Puxe os dados primeiro.');return;}
-  let hasTok=tokenStatus(); if(!hasTok)prog('Sem token válido: preenchendo canal/CEP/UF/cobrado do cliente mesmo assim; cotação fica pendente até conectar o token.');
+  let hasTok=tokenStatus(); if(!hasTok)prog('Login do servidor na Intelipost falhou (veja o selo no topo): preenchendo canal/CEP/UF/cobrado do cliente mesmo assim; cotação fica pendente.');
   STOP=false;toggleBusy(true);
   const cache=store.quotes;
   const fset=new Set(filtered().map(r=>r.nf));
