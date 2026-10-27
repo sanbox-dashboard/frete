@@ -114,20 +114,19 @@
 <div class="wrap">
 
   <div class="card" id="setupCard">
-    <h2>1 · Conectar à sua sessão Intelipost</h2>
-    <p class="hint">O custo do CT-e (o que a transportadora cobrou) vem do módulo interno de Conciliação, que exige o token da sua sessão logada. Ele expira a cada ~48h — quando expirar, repita este passo.</p>
-    <div class="step"><b>a.</b> <span>Deixe a aba do <b>TMS Intelipost</b> aberta e logada (secure.intelipost.com.br).</span></div>
-    <div class="step"><b>b.</b> <span>Arraste este botão para a barra de favoritos e clique nele enquanto estiver no TMS — ele copia o token: &nbsp; <a class="bookmarklet" href="javascript:(function(){try{var u=JSON.parse(localStorage['ls.user']);var t=u.access_token;navigator.clipboard.writeText(t).then(function(){alert('Token copiado! Cole no dashboard de conciliação.');},function(){prompt('Copie o token:',t);});}catch(e){alert('Abra esta pagina logado no TMS Intelipost.');}})();">📋 Copiar token Intelipost</a></span></div>
-    <div class="step"><b>c.</b> <span>Cole o token aqui e salve:</span></div>
-    <textarea id="tokInput" placeholder="Cole o token (começa com eyJ...)"></textarea>
-    <div class="row" style="margin-top:10px">
-      <button class="primary" onclick="saveToken()">Salvar token</button>
-      <span id="tokInfo" class="hint"></span>
+    <h2>1 · Login Intelipost (automático no servidor)</h2>
+    <p class="hint">O login na Intelipost é feito sozinho pelo servidor (Apps Script) e renova o token sozinho — <b>não precisa colar token</b> nem deixar o TMS aberto. O selo no topo mostra o estado.</p>
+    <div class="row" style="margin-top:8px">
+      <span id="srvLoginTxt" class="hint" style="font-weight:700">Verificando…</span>
+      <button onclick="checkServerLogin()">Verificar agora</button>
     </div>
-    <details style="margin-top:10px"><summary>Não consegue arrastar o favorito? Alternativa pelo console</summary>
-      <p class="hint">Na aba do TMS, aperte <code>F12</code> → aba <b>Console</b> → cole e Enter:<br>
-      <code>copy(JSON.parse(localStorage['ls.user']).access_token)</code><br>O token vai para a área de transferência; volte aqui e cole.</p>
+    <details id="srvFix" style="margin-top:10px"><summary>Selo vermelho? Como corrigir (1 minuto)</summary>
+      <p class="hint">O servidor guarda o e-mail e a senha da Intelipost. Se a senha foi trocada, ele não consegue entrar:<br>
+      <b>1.</b> Abra <a href="https://script.google.com/home/projects/1eM7btYOp5mulWbyY0MByvUxXj_-jtAkEubyS5mqBV2VycXDPWYlAu7JX/settings" target="_blank" rel="noopener">Configurações do projeto (Apps Script)</a> e role até <b>Propriedades do script</b>.<br>
+      <b>2.</b> Edite <code>IP_SENHA</code> (e <code>IP_EMAIL</code>, se mudou) e salve.<br>
+      <b>3.</b> Volte aqui e clique em <b>Verificar agora</b> — o selo deve ficar verde.</p>
     </details>
+    <textarea id="tokInput" style="display:none"></textarea><span id="tokInfo" style="display:none"></span>
     <details style="margin-top:6px"><summary>Chave da API pública (re-cotação)</summary>
       <p class="hint">Usada para calcular o valor da cotação. Já preenchida; troque se necessário.</p>
       <input id="apiKey" value="249b7e9deaaccc35b5ff738f31300c73cbc37147ae196fb00316edfe12f29deb">
@@ -7905,11 +7904,12 @@ function prog(t){document.getElementById('progressTxt').textContent=t;}
 // Login na Intelipost agora é feito NO SERVIDOR (Apps Script): renova o token sozinho, sem depender do seu computador.
 // O selo abaixo só mostra o estado dessa conexão (consulta ?action=status do Web App).
 let SRV_ST={ok:null,exp:0,erro:'',at:0};
+function srvPanel(t,ok){ const e=document.getElementById('srvLoginTxt'); if(e){ e.textContent=t; e.style.color=(ok===true)?'var(--gr)':(ok===false?'var(--re)':''); } const f=document.getElementById('srvFix'); if(f&&ok===false) f.open=true; }
 function tokenStatus(){
   const b=document.getElementById('tokBadge'); if(!b) return true;
-  if(SRV_ST.ok===true){ b.className='badge ok'; b.title='Login automático no servidor · token válido até '+(SRV_ST.exp?new Date(SRV_ST.exp).toLocaleString('pt-BR'):'—')+' (renova sozinho)'; b.textContent='Intelipost online · login automático'; return true; }
-  if(SRV_ST.ok===false){ b.className='badge err'; b.title=SRV_ST.erro||'Falha ao consultar o servidor'; b.textContent='Intelipost: login do servidor falhou'; return false; }
-  b.className='badge'; b.textContent='Intelipost: verificando…'; return true;
+  if(SRV_ST.ok===true){ b.className='badge ok'; b.title='Login automático no servidor · token válido até '+(SRV_ST.exp?new Date(SRV_ST.exp).toLocaleString('pt-BR'):'—')+' (renova sozinho)'; b.textContent='Intelipost online · login automático'; srvPanel('✔ Online — token válido até '+(SRV_ST.exp?new Date(SRV_ST.exp).toLocaleString('pt-BR'):'—')+' (renova sozinho).',true); return true; }
+  if(SRV_ST.ok===false){ b.className='badge err'; b.title=SRV_ST.erro||'Falha ao consultar o servidor'; b.textContent='Intelipost: login do servidor falhou'; srvPanel('✖ Login do servidor falhou: '+(SRV_ST.erro||'sem resposta')+' — atualize a senha (veja abaixo).',false); return false; }
+  b.className='badge'; b.textContent='Intelipost: verificando…'; srvPanel('Verificando…',null); return true;
 }
 async function checkServerLogin(){
   try{
