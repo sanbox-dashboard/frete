@@ -7873,23 +7873,43 @@ function carrierGroup(name){
 }
 
 let MEM={rows:[],quotes:{}};
+// ===== Anti-duplicata CENTRAL: toda gravação de store.rows passa por aqui =====
+// Mesmo CT-e da mesma NF (mesmo valor + número do CT-e igual ou ausente, ignorando zeros à esquerda/lixo de formatação) = 1 linha só.
+// Mantém a melhor linha (não-split, com cobrado, editada à mão, com nº do CT-e), preenche campos vazios dela com os da duplicata e une as marcas de edição.
+function _cteDig(r){ return String(r.cteNumFech||r.cteNum||'').replace(/\D/g,'').replace(/^0+/,'').slice(-9); }
+function dedupeRows(rows){
+  if(!Array.isArray(rows)||rows.length<2)return rows;
+  const score=function(r){ return (r.cteSplit?0:8)+(r.tms>0?4:0)+(r._edit?2:0)+(_cteDig(r)?1:0); };
+  const g=new Map();
+  for(let i=0;i<rows.length;i++){ const r=rows[i]; if(!r||!r.nf||!(r.cte>0))continue; const k=normNF(r.nf)+'|'+Math.round(r.cte*100); let a=g.get(k); if(!a){a=[];g.set(k,a);} a.push(i); }
+  let drop=null;
+  g.forEach(function(ix){ if(ix.length<2)return;
+    const items=ix.map(function(i){return {i:i,r:rows[i],n:_cteDig(rows[i])};}).sort(function(a,b){return score(b.r)-score(a.r)||a.i-b.i;});
+    const kept=[];
+    for(const x of items){ const d=kept.find(function(y){return !x.n||!y.n||x.n.slice(-6)===y.n.slice(-6);});
+      if(d){ (drop||(drop=new Set())).add(x.i); for(const f in x.r){ if(f==='_edit'){ d.r._edit=Object.assign({},x.r._edit||{},d.r._edit||{}); } else if(d.r[f]===undefined||d.r[f]===null||d.r[f]===''){ d.r[f]=x.r[f]; } } }
+      else kept.push(x); } });
+  return drop?rows.filter(function(r,i){return !drop.has(i);}):rows;
+}
+let _idbErr=false;
+function idbFail(e){ _idbErr=true; try{ const st=document.getElementById('cloudStatus'); if(st){ st.textContent='⚠ NÃO consegui gravar neste navegador ('+((e&&e.message)||e)+') — use "Salvar na nuvem" agora'; st.style.color='var(--re)'; } }catch(x){} }
 const store={
   get token(){return localStorage.getItem('cf.token')||''},
   set token(v){localStorage.setItem('cf.token',v)},
   get apikey(){return localStorage.getItem('cf.apikey')||(document.getElementById('apiKey')?document.getElementById('apiKey').value:'')},
   set apikey(v){localStorage.setItem('cf.apikey',v)},
   get rows(){return MEM.rows;},
-  set rows(v){MEM.rows=v||[];idbSet('rows',MEM.rows).catch(()=>{});},
+  set rows(v){MEM.rows=dedupeRows(v||[]);idbSet('rows',MEM.rows).catch(idbFail);},
   get quotes(){return MEM.quotes;},
-  set quotes(v){MEM.quotes=v||{};idbSet('quotes',MEM.quotes).catch(()=>{});},
+  set quotes(v){MEM.quotes=v||{};idbSet('quotes',MEM.quotes).catch(idbFail);},
   get updated(){return localStorage.getItem('cf.updated')||''},
   set updated(v){localStorage.setItem('cf.updated',v)},
   get cubagem(){try{return JSON.parse(localStorage.getItem('cf.cubagem')||'{}')}catch(e){return{}}},
   set cubagem(v){localStorage.setItem('cf.cubagem',JSON.stringify(v))},
   get recuperacoes(){try{return JSON.parse(localStorage.getItem('cf.recuperacoes')||'[]')}catch(e){return[]}},
-  set recuperacoes(v){localStorage.setItem('cf.recuperacoes',JSON.stringify(v))},
+  set recuperacoes(v){try{localStorage.setItem('cf.recuperacoes',JSON.stringify(v))}catch(e){idbFail(e)} idbSet('recuperacoes',v).catch(idbFail);},
   get ressarc(){try{return JSON.parse(localStorage.getItem('cf.ressarc')||'{}')}catch(e){return{}}},
-  set ressarc(v){localStorage.setItem('cf.ressarc',JSON.stringify(v))}
+  set ressarc(v){try{localStorage.setItem('cf.ressarc',JSON.stringify(v))}catch(e){idbFail(e)} idbSet('ressarc',v).catch(idbFail);}
 };
 
 function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('cf-db',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
@@ -9212,7 +9232,7 @@ async function loadCloud(force){
 }
 // ===== Sincronização multiusuário: merge de 3 vias (base = o que carreguei, mine = local, theirs = nuvem atual) =====
 let CLOUD_BASE=null;
-function _rowKey(r){ return normNF(r.nf)+'|'+String(r.cteNumFech||''); }
+function _rowKey(r){ return normNF(r.nf)+'|'+_cteDig(r); } // número do CT-e normalizado (sem zeros à esquerda/lixo): "001001315994" e "1315994" são o mesmo CT-e
 function mergeBackup(base, mine, theirs){
   const eq=(a,b)=>JSON.stringify(a===undefined?null:a)===JSON.stringify(b===undefined?null:b);
   base=base||{}; mine=mine||{}; theirs=theirs||{};
@@ -9224,7 +9244,7 @@ function mergeBackup(base, mine, theirs){
   const res={}; for(const k in tMap)res[k]=tMap[k];
   for(const k in mMap){ const m=mMap[k], b=bMap[k]; if(!b||!eq(m,b)) res[k]=m; }              // meus novos/alterados ganham
   for(const k in bMap){ if(!(k in mMap) && (k in res) && eq(tMap[k],bMap[k])) delete res[k]; } // o que EU apaguei (e ninguém mexeu) some
-  const rows=Object.values(res);
+  const rows=dedupeRows(Object.values(res));
   // quotes: por NF, campo a campo — meus campos alterados ganham
   const quotes={...(theirs.quotes||{})}; const mq=mine.quotes||{}, bq=base.quotes||{};
   for(const nf in mq){ const m=mq[nf]||{}, b=bq[nf]||{}; const merged={...(quotes[nf]||{})}; for(const f in m){ if(!eq(m[f],b[f])) merged[f]=m[f]; } quotes[nf]=merged; }
@@ -9245,17 +9265,22 @@ async function cloudSave(silent){
     const body=JSON.stringify(fbPack(merged));
     const r=await fetch(FB_URL,{method:'PUT',body});
     if(!r.ok){ const t=(await r.text()).slice(0,140); const st=document.getElementById('cloudStatus'); if(st){st.textContent='☁ FALHOU ao salvar ('+r.status+') — dados só neste navegador'; st.style.color='var(--re)';} if(!silent)alert('Erro '+r.status+' ao salvar: '+t); prog('⚠ Falha ao salvar na nuvem ('+r.status+'): '+t); return; }
+    // Confere se a nuvem realmente guardou (relê o carimbo de data/hora gravado)
+    let verified=false; try{ const vr=await fetch(FB_URL.replace('backup.json','backup/savedAt.json')+'?_='+Date.now(),{cache:'no-store'}); if(vr.ok){ const sv=await vr.json(); verified=(sv===merged.savedAt); } }catch(ve){}
     store.rows=merged.rows; store.quotes=merged.quotes; store.recuperacoes=merged.recuperacoes; store.ressarc=merged.ressarc; if(merged.updated)store.updated=merged.updated;
     CLOUD_BASE=JSON.parse(JSON.stringify(merged)); try{ idbSet('cloudBase',CLOUD_BASE); }catch(e){}
-    applySkuMap(); if(!silent)render();
-    const st=document.getElementById('cloudStatus'); if(st){st.textContent='☁ salvo '+new Date().toLocaleTimeString('pt-BR'); st.style.color='';}
+    _cloudPending=false;
+    applySkuMap(); if(!silent)render(); else { try{ render(); }catch(re){} }
+    const st=document.getElementById('cloudStatus'); if(st){ if(verified){ st.textContent='☁ salvo e conferido '+new Date().toLocaleTimeString('pt-BR')+' · '+store.rows.length+' notas'; st.style.color=''; } else { st.textContent='☁ enviado '+new Date().toLocaleTimeString('pt-BR')+' (não consegui conferir — clique "Salvar na nuvem" de novo)'; st.style.color='var(--re)'; } }
     if(!silent)prog('✅ Salvo na nuvem (mesclado): '+store.rows.length+' notas. As edições de outras pessoas foram preservadas.');
   }catch(e){ if(!silent)alert('Erro ao salvar na nuvem: '+e.message); prog('Falha ao salvar na nuvem: '+e.message); }
 }
 // ===== Auto-salvar na nuvem (com debounce) =====
 function autoCloudOn(){ return localStorage.getItem('cf.autoCloud')!=='0'; }
-let _cloudTimer=null;
-function scheduleCloudSave(){ if(!autoCloudOn())return; clearTimeout(_cloudTimer); const st=document.getElementById('cloudStatus'); if(st)st.textContent='☁ alterações pendentes...'; _cloudTimer=setTimeout(function(){ cloudSave(true); }, 12000); }
+let _cloudTimer=null, _cloudPending=false;
+function scheduleCloudSave(){ if(!autoCloudOn())return; clearTimeout(_cloudTimer); _cloudPending=true; const st=document.getElementById('cloudStatus'); if(st){st.textContent='☁ alterações pendentes (salvando em 3s)...'; st.style.color='var(--or)';} _cloudTimer=setTimeout(function(){ cloudSave(true); }, 3000); }
+// Avisa antes de fechar/recarregar a aba se ainda há alteração não enviada à nuvem
+window.addEventListener('beforeunload',function(e){ if(_cloudPending||_idbErr){ e.preventDefault(); e.returnValue='Há alterações ainda não salvas na nuvem. Aguarde o selo "salvo e conferido".'; return e.returnValue; } });
 function toggleAutoCloud(cb){ localStorage.setItem('cf.autoCloud', cb.checked?'1':'0'); const st=document.getElementById('cloudStatus'); if(st)st.textContent=cb.checked?'☁ auto-salvar ligado':'☁ auto-salvar desligado'; if(cb.checked)scheduleCloudSave(); }
 async function boot(){
   // Carrega dados do IndexedDB (cota grande). Migra 1x do localStorage antigo, se houver, e libera a cota.
@@ -9263,10 +9288,15 @@ async function boot(){
   try{ MEM.quotes=(await idbGet('quotes'))||{}; }catch(e){ MEM.quotes={}; }
   try{ const lr=JSON.parse(localStorage.getItem('cf.rows')||'[]'); if(lr.length && !MEM.rows.length){ MEM.rows=lr; await idbSet('rows',lr); } if(localStorage.getItem('cf.rows')!==null) localStorage.removeItem('cf.rows'); }catch(e){}
   try{ const lq=JSON.parse(localStorage.getItem('cf.quotes')||'{}'); if(Object.keys(lq).length && !Object.keys(MEM.quotes).length){ MEM.quotes=lq; await idbSet('quotes',lq); } if(localStorage.getItem('cf.quotes')!==null) localStorage.removeItem('cf.quotes'); }catch(e){}
+  // Pede ao Chrome para NÃO apagar os dados deste site (armazenamento persistente) e restaura ressarcimento/recuperações do IndexedDB se o localStorage foi limpo
+  try{ if(navigator.storage&&navigator.storage.persist)navigator.storage.persist(); }catch(e){}
+  try{ if(!Object.keys(store.ressarc||{}).length){ const rr=await idbGet('ressarc'); if(rr&&Object.keys(rr).length)store.ressarc=rr; } if(!(store.recuperacoes||[]).length){ const rc=await idbGet('recuperacoes'); if(rc&&rc.length)store.recuperacoes=rc; } else { idbSet('recuperacoes',store.recuperacoes).catch(()=>{}); } if(Object.keys(store.ressarc||{}).length){ idbSet('ressarc',store.ressarc).catch(()=>{}); } }catch(e){}
+  try{ const n0=MEM.rows.length; MEM.rows=dedupeRows(MEM.rows); if(MEM.rows.length!==n0){ idbSet('rows',MEM.rows).catch(idbFail); } }catch(e){}
   if(!MEM.rows.length){ try{ await loadCloud(false); }catch(e){} }
   // Base do merge 3-vias: a última versão sincronizada com a nuvem (guardada no IndexedDB). Sem ela, base VAZIA — assim tudo que
   // existe só aqui conta como "meu" e é somado à nuvem (antes a base era uma cópia do local e as linhas só-locais sumiam no 1º salvamento).
   try{ if(!CLOUD_BASE){ let pb=null; try{ pb=await idbGet('cloudBase'); }catch(e){} if(pb&&pb.rows){ CLOUD_BASE=pb; } else { CLOUD_BASE={rows:[],quotes:{},recuperacoes:[],ressarc:{}}; if(MEM.rows.length){ try{ setTimeout(scheduleCloudSave,4000); }catch(e){} } } } }catch(e){}
+  try{ if(MEM.rows.length) setTimeout(scheduleCloudSave,6000); }catch(e){} // todo abrir do dash: sincroniza (traz o que outros salvaram e envia o que é meu)
   try{ const ac=document.getElementById('autoCloud'); if(ac){ac.checked=autoCloudOn(); document.getElementById('cloudStatus').textContent=autoCloudOn()?'☁ auto-salvar ligado':'';} }catch(e){}
   if(document.getElementById('apiKey'))document.getElementById('apiKey').value=store.apikey||document.getElementById('apiKey').value;
   tokenStatus();setInterval(tokenStatus,60000);
