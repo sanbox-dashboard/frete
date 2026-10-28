@@ -294,6 +294,10 @@
       <div class="hint" style="margin-bottom:6px;font-weight:600">Por Transportadora × Estado</div>
       <div class="tbl-wrap" style="max-height:440px"><table><thead><tr><th class="l">Transportadora</th><th class="l">UF</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th><th>%</th><th>Lucro</th><th>% Lucro</th></tr></thead><tbody id="repCombo"></tbody></table></div>
     </div>
+    <div style="margin-top:18px">
+      <div class="hint" style="margin-bottom:6px;font-weight:600">Por Transportadora</div>
+      <div class="tbl-wrap" style="max-height:440px"><table><thead><tr><th class="l">Transportadora</th><th>Notas</th><th>Σ Transportadora (CT-e)</th><th>Cobrança a mais</th><th>%</th><th>Lucro</th><th>% Lucro</th></tr></thead><tbody id="repCarrier"></tbody></table></div>
+    </div>
     <p class="hint" style="margin-top:10px">Σ Transportadora (CT-e) = total que a transportadora cobrou. Lucro = cobrado do cliente − CT-e (% sobre o CT-e). Cobrança a mais = quanto a transportadora cobrou acima da cotação. Por Estado e Por Canal ordenados pelo lucro (menor primeiro).</p>
   </div>
 
@@ -8810,6 +8814,13 @@ function reportCombo(rows){
     g[k].n++;g[k].cte+=r.cte||0;g[k].lucro+=r.lucro||0;if(r.cotacao!=null){g[k].cot++;if(r.cotVsCte<0)g[k].over+=(-r.cotVsCte);}}
   return Object.values(g).sort((a,b)=>a.transp.localeCompare(b.transp)||b.over-a.over);
 }
+function reportCarrier(rows){
+  const g={};
+  for(const r of rows){const transp=(r.grupo||'(sem transportadora)');
+    if(!g[transp])g[transp]={transp,n:0,cte:0,over:0,cot:0,lucro:0};
+    g[transp].n++;g[transp].cte+=r.cte||0;g[transp].lucro+=r.lucro||0;if(r.cotacao!=null){g[transp].cot++;if(r.cotVsCte<0)g[transp].over+=(-r.cotVsCte);}}
+  return Object.values(g).sort((a,b)=>a.transp.localeCompare(b.transp));
+}
 function pctTxt(over,cte){ return (cte>0)?((over/cte*100).toFixed(1).replace('.',',')+'%'):'—'; }
 function renderReport(rows){
   const fill=(id,data)=>{const el=document.getElementById(id);if(!el)return;el.innerHTML=data.map(d=>`<tr><td class="l">${d.grupo}</td><td>${d.notas}</td><td>${brl(d.cte)}</td><td class="${d.lucro<0?'neg':'pos'}">${brl(d.lucro)}</td><td class="${d.lucro<0?'neg':'pos'}">${pctTxt(d.lucro,d.cte)}</td></tr>`).join('')||'<tr><td colspan="5" class="muted" style="text-align:center">Sem dados no filtro.</td></tr>';};
@@ -8817,6 +8828,8 @@ function renderReport(rows){
   fill('repCanal',reportBy(rows,'canal'));
   const cel=document.getElementById('repCombo');
   if(cel){const c=reportCombo(rows);cel.innerHTML=c.map(d=>`<tr><td class="l">${d.transp}</td><td class="l">${d.uf}</td><td>${d.n}</td><td>${brl(d.cte)}</td><td class="${d.over>0?'neg':''}">${brl(d.over)}</td><td class="${d.over>0?'neg':''}">${pctTxt(d.over,d.cte)}</td><td class="${d.lucro<0?'neg':'pos'}">${brl(d.lucro)}</td><td class="${d.lucro<0?'neg':'pos'}">${pctTxt(d.lucro,d.cte)}</td></tr>`).join('')||'<tr><td colspan="8" class="muted" style="text-align:center">Sem dados no filtro.</td></tr>';}
+  const cel2=document.getElementById('repCarrier');
+  if(cel2){const c=reportCarrier(rows);cel2.innerHTML=c.map(d=>`<tr><td class="l">${d.transp}</td><td>${d.n}</td><td>${brl(d.cte)}</td><td class="${d.over>0?'neg':''}">${brl(d.over)}</td><td class="${d.over>0?'neg':''}">${pctTxt(d.over,d.cte)}</td><td class="${d.lucro<0?'neg':'pos'}">${brl(d.lucro)}</td><td class="${d.lucro<0?'neg':'pos'}">${pctTxt(d.lucro,d.cte)}</td></tr>`).join('')||'<tr><td colspan="7" class="muted" style="text-align:center">Sem dados no filtro.</td></tr>';}
 }
 function exportReport(){
   const rows=filtered();
@@ -8826,6 +8839,7 @@ function exportReport(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportBy(rows,'uf').map(map)),'Por Estado');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportBy(rows,'canal').map(map)),'Por Canal');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportCombo(rows).map(d=>({Transportadora:d.transp,UF:d.uf,Notas:d.n,Soma_Transportadora_CTe:d.cte,Cobranca_a_mais:d.over,Pct:pctNum(d.over,d.cte),Lucro:d.lucro,Pct_Lucro:pctNum(d.lucro,d.cte),Notas_com_cotacao:d.cot}))),'Transportadora x Estado');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(reportCarrier(rows).map(d=>({Transportadora:d.transp,Notas:d.n,Soma_Transportadora_CTe:d.cte,Cobranca_a_mais:d.over,Pct:pctNum(d.over,d.cte),Lucro:d.lucro,Pct_Lucro:pctNum(d.lucro,d.cte),Notas_com_cotacao:d.cot}))),'Por Transportadora');
   const suf=(HIDDEN.carrier.size||HIDDEN.canal.size||HIDDEN.uf.size)?'-filtrado':'';
   XLSX.writeFile(wb,`relatorio-conciliacao${suf}.xlsx`);
 }
@@ -9086,7 +9100,7 @@ function renderRessarc(){
   const byMonth={};
   for(const x of list){ const m=(x.data&&x.data.length>=7)?(+x.data.slice(5,7)):0; const g=byMonth[m]||(byMonth[m]={m,n:0,neg:0,reemb:0,falta:0,cte:0}); g.n++; g.neg+=x.negociado; g.reemb+=x.reembolso; g.falta+=x.falta; g.cte+=x.cte; }
   const mrows=Object.values(byMonth).sort((a,b)=>a.m-b.m);
-  const mel=document.getElementById('ressarcMes'); if(mel)mel.innerHTML='<div class="tbl-wrap"><table class="mini"><thead><tr><th class="l">Mês</th><th>Pedidos</th><th>Deveria ressarcir</th><th>Ressarcido Amazon</th><th>Falta</th><th>Transportadora (CT-e)</th></tr></thead><tbody>'+(mrows.length?mrows.map(g=>'<tr><td class="l">'+(g.m?(MESES[g.m]+'/'+YEAR):'(sem data)')+'</td><td>'+g.n+'</td><td>'+brl(g.neg)+'</td><td class="pos">'+brl(g.reemb)+'</td><td class="'+(g.falta>0.01?'neg':'')+'">'+brl(g.falta)+'</td><td>'+brl(g.cte)+'</td></tr>').join(''):'<tr><td colspan="6" class="muted" style="text-align:center">Sem dados.</td></tr>')+'</tbody></table></div>';
+  const mel=document.getElementById('ressarcMes'); if(mel)mel.innerHTML='<div class="tbl-wrap"><table class="mini"><thead><tr><th class="l">Mês</th><th>Pedidos</th><th>Deveria ressarcir</th><th>Ressarcido Amazon</th><th>Falta</th><th>Transportadora (CT-e)</th><th>Ressarcido − CT-e</th></tr></thead><tbody>'+(mrows.length?mrows.map(g=>{const df=Math.round((g.reemb-g.cte)*100)/100;return '<tr><td class="l">'+(g.m?(MESES[g.m]+'/'+YEAR):'(sem data)')+'</td><td>'+g.n+'</td><td>'+brl(g.neg)+'</td><td class="pos">'+brl(g.reemb)+'</td><td class="'+(g.falta>0.01?'neg':'')+'">'+brl(g.falta)+'</td><td>'+brl(g.cte)+'</td><td class="'+(df<0?'neg':'pos')+'">'+brl(df)+'</td></tr>';}).join('')+(function(){const tr=mrows.reduce((s,g)=>s+g.reemb,0),tc=mrows.reduce((s,g)=>s+g.cte,0),td=Math.round((tr-tc)*100)/100;return '<tr style="font-weight:700"><td class="l">Total</td><td>'+mrows.reduce((s,g)=>s+g.n,0)+'</td><td>'+brl(mrows.reduce((s,g)=>s+g.neg,0))+'</td><td class="pos">'+brl(tr)+'</td><td>'+brl(mrows.reduce((s,g)=>s+g.falta,0))+'</td><td>'+brl(tc)+'</td><td class="'+(td<0?'neg':'pos')+'">'+brl(td)+'</td></tr>';})():'<tr><td colspan="7" class="muted" style="text-align:center">Sem dados.</td></tr>')+'</tbody></table></div>';
   const sumNeg=list.reduce((s,x)=>s+x.negociado,0), sumReemb=list.reduce((s,x)=>s+x.reembolso,0), sumFalta=list.reduce((s,x)=>s+x.falta,0), sumCte=list.reduce((s,x)=>s+x.cte,0);
   const semN=list.filter(x=>!x.temReemb && x.status!=='aguard').length, naoCobre=list.filter(x=>!x.cobre && x.status!=='aguard').length, aguardN=list.filter(x=>x.status==='aguard').length, semCteN=list.filter(x=>!(x.cte>0)).length;
   const kpis=[
