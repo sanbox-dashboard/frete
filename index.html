@@ -9018,11 +9018,22 @@ async function atualizarNovosRessarc(){
       if(done%15===0){ store.quotes=cache; setBar(done/Math.max(1,alvo.length)); prog('Ressarcimento: enriquecendo '+done+'/'+alvo.length+' (ok '+ok+')...'); render(); }
       await new Promise(s=>setTimeout(s,70));
     }
-    store.quotes=cache; store.rows=store.rows; applySkuMap();
+    store.quotes=cache; store.rows=store.rows; applySkuMap(); try{ limparGemeosRessarc(); }catch(e){}
     prog('Ressarcimento atualizado: '+novos.length+' pedidos novos criados, '+ok+' enriquecidos pela Intelipost'+(neterr?(' — '+neterr+' falharam por rede'):'')+'. Os reconhecidos (frete fixo Amazon) já aparecem abaixo.');
     render(); renderRessarc(); await autoBackup();
   }catch(e){ prog('Erro ao atualizar novos (Ressarcimento): '+((e&&e.message)||e)); }
   toggleBusy(false); setBar(0);
+}
+// Remove "gêmeas": linhas ressarcNovo (criadas só p/ o Ressarcimento, cte 0) cuja NF já tem outra linha real (com CT-e/fechamento) ou outra gêmea.
+function limparGemeosRessarc(){
+  const has={}; store.rows.forEach(r=>{ if(!(r.ressarcNovo && !(r.cte>0))) has[normNF(r.nf)]=1; });
+  const seen={}; const keep=[]; let rm=0;
+  for(const r of store.rows){
+    if(r.ressarcNovo && !(r.cte>0)){ const k=normNF(r.nf); if(has[k]||seen[k]){ rm++; continue; } seen[k]=1; }
+    keep.push(r);
+  }
+  if(rm){ store.rows=keep; }
+  return rm;
 }
 function renderRessarc(){
   const map=store.ressarc||{};
@@ -9032,8 +9043,12 @@ function renderRessarc(){
   const q=(((document.getElementById('rSearch')||{}).value)||'').trim().toLowerCase();
   // reconhecidos = frete fixo Amazon aplicado (NÃO usa o filtro da Conciliação) + notas Amazon criadas por "Atualizar novos pedidos" ainda sem CT-e/regra (status "aguardando")
   const recon=enriched().filter(r=>!r.cteSplit && (r.tmsOrig!=null || (r.ressarcNovo && !(r.cte>0))));
-  const byOrder={};
-  for(const r of recon){ const oid=String(r.order||'').trim(); if(!oid)continue; const g=byOrder[oid]||(byOrder[oid]={order:oid,nf:r.nf,sku:r.sku||'',uf:r.uf||'',data:'',negociado:0,orig:0,cte:0,regra:false}); if(r.tmsOrig!=null){ g.regra=true; g.negociado+=(r.tms||0); g.orig+=(r.tmsOrig||0); } g.cte+=(r.cte||0); if(!g.sku&&r.sku)g.sku=r.sku; if(!g.uf&&r.uf)g.uf=r.uf; if(!g.data&&r.pedidoData)g.data=String(r.pedidoData).slice(0,10); }
+  const byOrder={}, seenNF={}, seenCte={};
+  for(const r of recon){ const oid=String(r.order||'').trim(); if(!oid)continue; const g=byOrder[oid]||(byOrder[oid]={order:oid,nf:r.nf,sku:r.sku||'',uf:r.uf||'',data:'',negociado:0,orig:0,cte:0,regra:false});
+    // Negociado/cobrado original contam UMA vez por NF (linhas duplicadas da mesma NF — ex.: nota criada por "Atualizar novos" + linha real do CT-e — dobravam o valor)
+    if(r.tmsOrig!=null){ g.regra=true; const kn=oid+'|'+normNF(r.nf); if(!seenNF[kn]){ seenNF[kn]=1; g.negociado+=(r.tms||0); g.orig+=(r.tmsOrig||0); } }
+    // CT-e: não soma o mesmo CT-e duas vezes (mesma NF + mesmo nº sem zeros à esquerda + mesmo valor)
+    if(r.cte>0){ const kc=normNF(r.nf)+'|'+String(r.cteNumFech||'').replace(/\D/g,'').replace(/^0+/,'')+'|'+r.cte; if(!seenCte[kc]){ seenCte[kc]=1; g.cte+=r.cte; } } if(!g.sku&&r.sku)g.sku=r.sku; if(!g.uf&&r.uf)g.uf=r.uf; if(!g.data&&r.pedidoData)g.data=String(r.pedidoData).slice(0,10); }
   let list=Object.values(byOrder).map(g=>{
     const rb=map[g.order]; const temReemb=!!rb; const reembolso=rb?rb.reembolso:0;
     const data=g.data || (rb&&rb.date?String(rb.date).slice(0,10):'');
@@ -9186,6 +9201,7 @@ async function boot(){
   if(document.getElementById('apiKey'))document.getElementById('apiKey').value=store.apikey||document.getElementById('apiKey').value;
   tokenStatus();setInterval(tokenStatus,60000);
   try{ await loadAmazonRules(); }catch(e){}
+  try{ if(limparGemeosRessarc()) setTimeout(function(){ try{autoBackup();}catch(e){} },3000); }catch(e){}
   render();
   try{ await loadFolder(); await loadSkuMap(false); }catch(e){}
   autoUpdate();
