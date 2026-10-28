@@ -7775,6 +7775,7 @@ function canalAtalho(vid, dias) {
     </div>
     <div class="grid kpis" id="ressarcKpis"></div>
     <div class="card"><h2 style="margin:0 0 10px">Por mês <span class="muted">(pela data do pedido)</span></h2><div id="ressarcMes"></div></div>
+    <div class="card"><h2 style="margin:0 0 6px">Ressarcidos pela Amazon sem pedido ou sem CT-e no dash <span class="muted" id="ressarcPendCount"></span> <button class="btn" style="float:right" onclick="exportRessarcPend()">Exportar</button></h2><div class="hint" style="margin-bottom:8px">Pedidos com valor ressarcido (planilha Seller Central) que não têm linha no dash ou cuja nota está sem CT-e.</div><div id="ressarcPend"></div></div>
     <div class="card">
       <div class="row" style="margin-bottom:10px;align-items:center"><h2 style="margin:0">Pedidos negociados <span id="ressarcCount" class="muted"></span></h2><div class="spacer"></div><button class="alt" onclick="exportRessarc()">⬇ Exportar Excel</button></div>
       <div class="tbl-wrap"><table><thead><tr>
@@ -9095,12 +9096,35 @@ function renderRessarc(){
   ];
   const kel=document.getElementById('ressarcKpis'); if(kel)kel.innerHTML=kpis.map(k=>`<div class="kpi"><div class="lbl">${k.lbl}</div><div class="val ${k.cls||''}">${k.val}</div><div class="sub">${k.sub||''}</div></div>`).join('');
   const cc=document.getElementById('ressarcCount'); if(cc)cc.textContent='('+list.length+')';
+  try{ renderRessarcPend(); }catch(e){ console.warn('ressarcPend',e); }
   const body=document.getElementById('ressarcBody'); if(!body)return;
   body.innerHTML=list.slice(0,3000).map(x=>{
     const st=x.status==='aguard'?'<span class="muted">aguardando CT-e / regra</span>':(x.status==='sem'?'<span class="neg">sem ressarcimento</span>':(x.status==='parcial'?'<span class="neg">parcial</span>':'<span class="pos">ok</span>'));
     const semCte=!(x.cte>0);
     return `<tr><td class="l">${x.order}</td><td class="l muted">${x.nf}</td><td class="l">${x.sku||'—'}</td><td class="l">${x.uf||'—'}</td><td class="l muted">${fmtDay(x.data)}</td><td>${x.status==='aguard'?'—':brl(x.negociado)}</td><td>${x.orig?brl(x.orig):'—'}</td><td class="${x.temReemb?'':'neg'}">${x.temReemb?brl(x.reembolso):'—'}</td><td>${x.status==='aguard'?'—':brl(x.recebido)}</td><td class="${x.falta>0.01?'neg':''}">${x.falta>0.01?brl(x.falta):'—'}</td><td>${st}</td><td>${semCte?'<span class="muted">aguardando CT-e</span>':brl(x.cte)}</td><td class="${x.coberturaDiff<0&&!semCte?'neg':'pos'}">${semCte?'—':brl(x.coberturaDiff)}</td><td>${semCte?'<span class="muted">—</span>':(x.cobre?'<span class="pos">sim</span>':'<span class="neg">não</span>')}</td></tr>`;
   }).join('')||'<tr><td colspan="14" class="muted" style="text-align:center;padding:22px">Suba a planilha do Seller Central para conferir os ressarcimentos.</td></tr>';
+}
+// Pedidos com ressarcimento Amazon (>0) que NÃO têm linha no dash ("sem pedido") ou cuja(s) nota(s) não têm CT-e ("sem CT-e")
+function ressarcPendList(){
+  const by={}; for(const r of store.rows){ const o=String(r.order||'').trim(); if(o)(by[o]=by[o]||[]).push(r); }
+  const out=[];
+  for(const o of Object.keys(store.ressarc||{})){ const v=store.ressarc[o]; if(!(v&&v.reembolso>0))continue; const rs=by[o];
+    if(!rs) out.push({order:o,nf:'',data:v.date?String(v.date).slice(0,10):'',reembolso:v.reembolso,motivo:'sem pedido no dash'});
+    else if(!rs.some(r=>r.cte>0)) out.push({order:o,nf:[...new Set(rs.map(r=>r.nf))].join(', '),data:(rs[0].pedidoData?String(rs[0].pedidoData).slice(0,10):(v.date?String(v.date).slice(0,10):'')),reembolso:v.reembolso,motivo:'sem CT-e'}); }
+  out.sort((a,b)=>(a.motivo<b.motivo?1:a.motivo>b.motivo?-1:0)||(b.data>a.data?1:-1));
+  return out;
+}
+function renderRessarcPend(){
+  const l=ressarcPendList(); window.__ressarcPend=l;
+  const sp=l.filter(x=>x.motivo==='sem pedido no dash'), sc=l.filter(x=>x.motivo==='sem CT-e'), sum=a=>a.reduce((s,x)=>s+x.reembolso,0);
+  const c=document.getElementById('ressarcPendCount'); if(c)c.textContent='('+sp.length+' sem pedido: '+brl(sum(sp))+' · '+sc.length+' sem CT-e: '+brl(sum(sc))+')';
+  const el=document.getElementById('ressarcPend'); if(!el)return;
+  el.innerHTML='<div class="tbl-wrap" style="max-height:340px;overflow:auto"><table class="mini"><thead><tr><th class="l">Pedido</th><th class="l">NF</th><th class="l">Data</th><th>Valor ressarcido</th><th class="l">Situação</th></tr></thead><tbody>'+(l.length?l.map(x=>'<tr><td class="l">'+x.order+'</td><td class="l muted">'+(x.nf||'—')+'</td><td class="l muted">'+fmtDay(x.data)+'</td><td class="pos">'+brl(x.reembolso)+'</td><td class="l '+(x.motivo==='sem CT-e'?'muted':'neg')+'">'+x.motivo+'</td></tr>').join(''):'<tr><td colspan="5" class="muted" style="text-align:center">Nenhum.</td></tr>')+'</tbody></table></div>';
+}
+function exportRessarcPend(){
+  const l=window.__ressarcPend||ressarcPendList(); if(!l.length){alert('Nada para exportar.');return;}
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(l.map(x=>({Pedido:x.order,NF:x.nf,Data:fmtDay(x.data),Valor_ressarcido:x.reembolso,Situacao:x.motivo}))),'Ressarcidos sem CT-e');
+  XLSX.writeFile(wb,'ressarcidos-sem-pedido-ou-cte.xlsx');
 }
 function exportRessarc(){
   const list=window.__ressarcList||[]; if(!list.length){alert('Nada para exportar. Suba a planilha da Amazon primeiro (e confira o filtro de mês).');return;}
