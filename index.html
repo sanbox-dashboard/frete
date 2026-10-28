@@ -7979,10 +7979,18 @@ async function pullNew(silent){
   try{
     const existing=new Set(store.rows.map(r=>r.nf));
     const now=new Date();const lastM=(now.getFullYear()===YEAR)?now.getMonth()+1:12;
-    let added=[];
-    for(let m=1;m<=lastM;m++){ if(STOP)break; const rows=await pullMonth(m); for(const r of rows){ if(r.nf && !existing.has(r.nf)){added.push(r);existing.add(r.nf);} } setBar(m/lastM); }
-    if(!STOP && added.length){ store.rows=store.rows.concat(added); store.updated=new Date().toISOString(); applySkuMap(); }
-    prog('Pedidos novos adicionados: '+added.length+'. Os antigos NÃO foram alterados.');
+    let added=[], filled=0;
+    const byNF={}; store.rows.forEach(r=>{ if(r.nf)(byNF[r.nf]=byNF[r.nf]||[]).push(r); });
+    for(let m=1;m<=lastM;m++){ if(STOP)break; const rows=await pullMonth(m); for(const r of rows){
+      if(!r.nf)continue;
+      if(!existing.has(r.nf)){added.push(r);existing.add(r.nf);}
+      else if(r.cte>0){ // NF já existe SEM CT-e (ex.: nota criada por "Atualizar novos" do Ressarcimento): só preenche o CT-e que faltava
+        const tgt=(byNF[r.nf]||[]).find(x=>!(x.cte>0)&&!x.cteFonte&&!isEdited(x,'cte'));
+        if(tgt){ tgt.cte=r.cte; if(r.cteNum)tgt.cteNum=r.cteNum; if(r.issue)tgt.issue=r.issue; if(r.carrier&&!isEdited(tgt,'carrier'))tgt.carrier=r.carrier; if(r.status)tgt.status=r.status; if(r.margin)tgt.margin=r.margin; if(!tgt.month&&r.month)tgt.month=r.month; filled++; }
+      }
+    } setBar(m/lastM); }
+    if(!STOP && (added.length||filled)){ store.rows=store.rows.concat(added); store.updated=new Date().toISOString(); applySkuMap(); }
+    prog('Pedidos novos adicionados: '+added.length+'; CT-e preenchido em '+filled+' notas que estavam sem. Os demais antigos NÃO foram alterados.');
     render();await autoBackup();
   }catch(e){
     prog('Erro: '+e.message);
