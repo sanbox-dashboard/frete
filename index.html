@@ -7977,6 +7977,25 @@ async function pullAll(silent){
   toggleBusy(false);setBar(0);
 }
 
+// Preenche estado/cidade/CEP/canal/data do pedido (só campos vazios, nunca editados) das notas dos últimos 3 meses direto da Intelipost (REST + api-key).
+// Sem isso, notas novas ficavam "(sem)" em Por Estado/Transportadora × Estado e sem data/UF para a regra de frete fixo da Amazon.
+async function preencherEstadoFaltante(lastM){
+  const cache=store.quotes, blank=v=>v===undefined||v===null||v==='';
+  const minM=Math.max(1,(lastM||12)-2), seen=new Set();
+  const list=store.rows.filter(r=>{ if(!r.nf||r.cteSplit||seen.has(r.nf))return false; if(r.month&&r.month<minM)return false; const c=cache[r.nf]||{};
+    const need=(blank(c.uf)&&!isEdited(r,'uf'))||(blank(c.canal)&&!isEdited(r,'canal'))||(blank(c.pedidoData)&&!isEdited(r,'pedidoData')); if(need)seen.add(r.nf); return need; }).slice(0,900);
+  let i=0,n=0;
+  const worker=async()=>{ while(i<list.length&&!STOP){ const r=list[i++]; try{ const d=await fetchOrder(r.nf); if(!d)continue; const e={...(cache[r.nf]||{})}; const ec=d.end_customer||{};
+    if((blank(e.canal)||e.canal==='(sem dados)')&&!isEdited(r,'canal')) e.canal=mapCanal(d.sales_channel||d.sales_channel_name)||'(sem canal)';
+    if(blank(e.cep)&&!isEdited(r,'cep')) e.cep=ec.shipping_zip_code||d.destination_zip_code||'';
+    if(blank(e.cidade)&&!isEdited(r,'cidade')) e.cidade=ec.shipping_city||'';
+    if(blank(e.uf)&&!isEdited(r,'uf')) e.uf=ec.shipping_state_code||'';
+    if(blank(e.pedidoData)&&!isEdited(r,'pedidoData')) e.pedidoData=d.created_iso||d.created||'';
+    if(!isEdited(r,'vols')&&!(e.vols&&e.vols.length)&&d.shipment_order_volume_array&&d.shipment_order_volume_array.length){ e.vols=d.shipment_order_volume_array.map(function(v){return{w:+v.width||0,h:+v.height||0,l:+v.length||0,p:+v.weight||0};}); }
+    cache[r.nf]=e; n++; }catch(e){} await new Promise(s=>setTimeout(s,60)); } };
+  if(list.length){ prog('Completando estado/canal/data de '+list.length+' notas na Intelipost...'); await Promise.all([worker(),worker(),worker(),worker()]); store.quotes=cache; }
+  return n;
+}
 // Puxa SÓ os pedidos novos (NF ainda não presente). NÃO altera nenhum pedido existente.
 async function pullNew(silent){
   if(!tokenStatus()){if(!silent)alert('Configure o token primeiro (passo 1).');return;}
@@ -7996,6 +8015,7 @@ async function pullNew(silent){
     } setBar(m/lastM); }
     if(!STOP && (added.length||filled)){ store.rows=store.rows.concat(added); store.updated=new Date().toISOString(); applySkuMap(); }
     prog('Pedidos novos adicionados: '+added.length+'; CT-e preenchido em '+filled+' notas que estavam sem. Os demais antigos NÃO foram alterados.');
+    try{ const nUf=await preencherEstadoFaltante(lastM); if(nUf)prog('Pedidos novos adicionados: '+added.length+'; CT-e preenchido em '+filled+'; estado/canal/data preenchidos em '+nUf+' notas (Intelipost).'); }catch(e){ console.warn('preencherEstadoFaltante',e); }
     render();await autoBackup();
   }catch(e){
     prog('Erro: '+e.message);
