@@ -8482,15 +8482,15 @@ async function atualizarCTe(){
 }
 function toggleBusy(b){['btnNew','btnComplete','btnPull','btnQuote','btnMissing','btnCanal','btnForce','btnFrete','btnCte','btnCancel','btnAmz','btnRepair','btnKondado','btnRessarcNovos'].forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=b;});document.getElementById('btnStop').disabled=!b;}
 
-function backupData(){return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:store.rows,quotes:store.quotes,recuperacoes:store.recuperacoes,ressarc:store.ressarc};}
+function backupData(){const rs=store.rows; return {v:2,savedAt:new Date().toISOString(),updated:store.updated,rows:rs,quotes:store.quotes,recuperacoes:store.recuperacoes,ressarc:store.ressarc,meta:{nRows:rs.length,nRessarcNovo:rs.filter(x=>x.ressarcNovo).length,nRessarc:Object.keys(store.ressarc||{}).length,nRecuperacoes:(store.recuperacoes||[]).length}};}
 async function ensurePerm(h,mode='readwrite'){ if(!h)return false; const o={mode}; if((await h.queryPermission(o))==='granted')return true; if((await h.requestPermission(o))==='granted')return true; return false; }
 async function setBackupFolder(){
   if(!window.showDirectoryPicker){alert('Seu navegador não permite escolher pasta aqui. Use "Salvar backup" — ele baixa o arquivo normalmente.');return;}
   try{ const h=await window.showDirectoryPicker({mode:'readwrite'}); dirHandle=h;await idbSet('backupDir',h); folderBadge(h.name); await saveBackup(true); }
   catch(e){ if(e.name!=='AbortError') alert('Não foi possível definir a pasta: '+e.message); }
 }
-function folderBadge(name){document.getElementById('folderBadge').textContent=name?('Pasta de backup: '+name):'Pasta de backup: não definida';}
-async function loadFolder(){ try{const h=await idbGet('backupDir');if(h){dirHandle=h;folderBadge(h.name);}}catch(e){} }
+function folderBadge(name){const b=document.getElementById('folderBadge'); b.textContent=name?('Pasta de backup: '+name):'⚠ Backup em disco DESLIGADO — clique em "Definir pasta de backup"'; b.className=name?'badge':'badge err'; b.title=name?'':'Sem pasta definida, o arquivo backup-conciliacao-2026.json não é gravado (só a nuvem guarda os dados, inclusive pedidos sem CT-e, ressarcimento e recuperações).';}
+async function loadFolder(){ try{const h=await idbGet('backupDir');if(h){dirHandle=h;folderBadge(h.name);} else folderBadge(null);}catch(e){folderBadge(null);} }
 async function loadSkuMap(manual){
   if(!dirHandle){ if(manual)alert('Defina a pasta de backup primeiro.'); return; }
   try{
@@ -9030,15 +9030,17 @@ function renderRessarc(){
   const de=(document.getElementById('rDe')||{}).value||'';
   const ate=(document.getElementById('rAte')||{}).value||'';
   const q=(((document.getElementById('rSearch')||{}).value)||'').trim().toLowerCase();
-  const recon=enriched().filter(r=>r.tmsOrig!=null && !r.cteSplit); // reconhecidos = frete fixo Amazon aplicado (NÃO usa o filtro da Conciliação)
+  // reconhecidos = frete fixo Amazon aplicado (NÃO usa o filtro da Conciliação) + notas Amazon criadas por "Atualizar novos pedidos" ainda sem CT-e/regra (status "aguardando")
+  const recon=enriched().filter(r=>!r.cteSplit && (r.tmsOrig!=null || (r.ressarcNovo && !(r.cte>0))));
   const byOrder={};
-  for(const r of recon){ const oid=String(r.order||'').trim(); if(!oid)continue; const g=byOrder[oid]||(byOrder[oid]={order:oid,nf:r.nf,sku:r.sku||'',uf:r.uf||'',data:'',negociado:0,orig:0,cte:0}); g.negociado+=(r.tms||0); g.orig+=(r.tmsOrig||0); g.cte+=(r.cte||0); if(!g.sku&&r.sku)g.sku=r.sku; if(!g.data&&r.pedidoData)g.data=String(r.pedidoData).slice(0,10); }
+  for(const r of recon){ const oid=String(r.order||'').trim(); if(!oid)continue; const g=byOrder[oid]||(byOrder[oid]={order:oid,nf:r.nf,sku:r.sku||'',uf:r.uf||'',data:'',negociado:0,orig:0,cte:0,regra:false}); if(r.tmsOrig!=null){ g.regra=true; g.negociado+=(r.tms||0); g.orig+=(r.tmsOrig||0); } g.cte+=(r.cte||0); if(!g.sku&&r.sku)g.sku=r.sku; if(!g.uf&&r.uf)g.uf=r.uf; if(!g.data&&r.pedidoData)g.data=String(r.pedidoData).slice(0,10); }
   let list=Object.values(byOrder).map(g=>{
     const rb=map[g.order]; const temReemb=!!rb; const reembolso=rb?rb.reembolso:0;
     const data=g.data || (rb&&rb.date?String(rb.date).slice(0,10):'');
     const recebido=reembolso+g.orig;
     const falta=Math.max(0,Math.round((g.negociado-recebido)*100)/100);
-    const status=!temReemb?'sem':(falta>0.01?'parcial':'ok');
+    const aguard=!g.regra && !temReemb; // sem regra de frete fixo na data/SKU/UF (ou dados ainda incompletos) e sem ressarcimento: só acompanhar
+    const status=aguard?'aguard':(!temReemb?'sem':(falta>0.01?'parcial':'ok'));
     const coberturaDiff=Math.round((recebido-g.cte)*100)/100;
     return {...g,data,reembolso,temReemb,recebido,falta,status,coberturaDiff,cobre:recebido>=g.cte};
   });
@@ -9058,7 +9060,7 @@ function renderRessarc(){
   const mrows=Object.values(byMonth).sort((a,b)=>a.m-b.m);
   const mel=document.getElementById('ressarcMes'); if(mel)mel.innerHTML='<div class="tbl-wrap"><table class="mini"><thead><tr><th class="l">Mês</th><th>Pedidos</th><th>Deveria ressarcir</th><th>Ressarcido Amazon</th><th>Falta</th><th>Transportadora (CT-e)</th></tr></thead><tbody>'+(mrows.length?mrows.map(g=>'<tr><td class="l">'+(g.m?(MESES[g.m]+'/'+YEAR):'(sem data)')+'</td><td>'+g.n+'</td><td>'+brl(g.neg)+'</td><td class="pos">'+brl(g.reemb)+'</td><td class="'+(g.falta>0.01?'neg':'')+'">'+brl(g.falta)+'</td><td>'+brl(g.cte)+'</td></tr>').join(''):'<tr><td colspan="6" class="muted" style="text-align:center">Sem dados.</td></tr>')+'</tbody></table></div>';
   const sumNeg=list.reduce((s,x)=>s+x.negociado,0), sumReemb=list.reduce((s,x)=>s+x.reembolso,0), sumFalta=list.reduce((s,x)=>s+x.falta,0), sumCte=list.reduce((s,x)=>s+x.cte,0);
-  const semN=list.filter(x=>!x.temReemb).length, naoCobre=list.filter(x=>!x.cobre).length;
+  const semN=list.filter(x=>!x.temReemb && x.status!=='aguard').length, naoCobre=list.filter(x=>!x.cobre && x.status!=='aguard').length, aguardN=list.filter(x=>x.status==='aguard').length, semCteN=list.filter(x=>!(x.cte>0)).length;
   const kpis=[
     {lbl:'Pedidos negociados',val:list.length,sub:'reconhecidos na planilha'},
     {lbl:'Σ deveria ser ressarcido',val:brl(sumNeg)},
@@ -9066,13 +9068,15 @@ function renderRessarc(){
     {lbl:'Σ falta ressarcir',val:brl(sumFalta),cls:sumFalta>0.01?'bad':'good',sub:semN+' pedidos sem ressarcimento'},
     {lbl:'Σ Transportadora cobrou (CT-e)',val:brl(sumCte)},
     {lbl:'Não cobrem o CT-e',val:naoCobre,cls:naoCobre?'bad':'good',sub:'recebido < transportadora'},
+    {lbl:'Aguardando CT-e',val:semCteN,sub:aguardN+' ainda sem regra de frete fixo'},
   ];
   const kel=document.getElementById('ressarcKpis'); if(kel)kel.innerHTML=kpis.map(k=>`<div class="kpi"><div class="lbl">${k.lbl}</div><div class="val ${k.cls||''}">${k.val}</div><div class="sub">${k.sub||''}</div></div>`).join('');
   const cc=document.getElementById('ressarcCount'); if(cc)cc.textContent='('+list.length+')';
   const body=document.getElementById('ressarcBody'); if(!body)return;
   body.innerHTML=list.slice(0,3000).map(x=>{
-    const st=x.status==='sem'?'<span class="neg">sem ressarcimento</span>':(x.status==='parcial'?'<span class="neg">parcial</span>':'<span class="pos">ok</span>');
-    return `<tr><td class="l">${x.order}</td><td class="l muted">${x.nf}</td><td class="l">${x.sku||'—'}</td><td class="l">${x.uf||'—'}</td><td class="l muted">${fmtDay(x.data)}</td><td>${brl(x.negociado)}</td><td>${x.orig?brl(x.orig):'—'}</td><td class="${x.temReemb?'':'neg'}">${x.temReemb?brl(x.reembolso):'—'}</td><td>${brl(x.recebido)}</td><td class="${x.falta>0.01?'neg':''}">${x.falta>0.01?brl(x.falta):'—'}</td><td>${st}</td><td>${brl(x.cte)}</td><td class="${x.coberturaDiff<0?'neg':'pos'}">${brl(x.coberturaDiff)}</td><td>${x.cobre?'<span class="pos">sim</span>':'<span class="neg">não</span>'}</td></tr>`;
+    const st=x.status==='aguard'?'<span class="muted">aguardando CT-e / regra</span>':(x.status==='sem'?'<span class="neg">sem ressarcimento</span>':(x.status==='parcial'?'<span class="neg">parcial</span>':'<span class="pos">ok</span>'));
+    const semCte=!(x.cte>0);
+    return `<tr><td class="l">${x.order}</td><td class="l muted">${x.nf}</td><td class="l">${x.sku||'—'}</td><td class="l">${x.uf||'—'}</td><td class="l muted">${fmtDay(x.data)}</td><td>${x.status==='aguard'?'—':brl(x.negociado)}</td><td>${x.orig?brl(x.orig):'—'}</td><td class="${x.temReemb?'':'neg'}">${x.temReemb?brl(x.reembolso):'—'}</td><td>${x.status==='aguard'?'—':brl(x.recebido)}</td><td class="${x.falta>0.01?'neg':''}">${x.falta>0.01?brl(x.falta):'—'}</td><td>${st}</td><td>${semCte?'<span class="muted">aguardando CT-e</span>':brl(x.cte)}</td><td class="${x.coberturaDiff<0&&!semCte?'neg':'pos'}">${semCte?'—':brl(x.coberturaDiff)}</td><td>${semCte?'<span class="muted">—</span>':(x.cobre?'<span class="pos">sim</span>':'<span class="neg">não</span>')}</td></tr>`;
   }).join('')||'<tr><td colspan="14" class="muted" style="text-align:center;padding:22px">Suba a planilha do Seller Central para conferir os ressarcimentos.</td></tr>';
 }
 function exportRessarc(){
@@ -9095,6 +9099,11 @@ async function autoUpdate(){
   }catch(e){ prog('Atualização automática interrompida: '+e.message); }
 }
 const FB_URL='https://sanbox-5ac59-default-rtdb.firebaseio.com/frete/backup.json';
+// O Firebase RTDB limita uma STRING a 10 MB. O backup (JSON em texto) passou disso em outubro e o salvamento na nuvem falhava com "400" em silêncio.
+// Formato novo (v3): {v:3, savedAt, n, parts:[texto1, texto2, ...]} — pedaços de ~3 MB. A leitura aceita o formato antigo (string única) e o novo.
+const FB_CHUNK=3000000;
+function fbPack(obj){ const s=JSON.stringify(obj); const parts=[]; let i=0; while(i<s.length){ let j=Math.min(s.length,i+FB_CHUNK); if(j<s.length){ const c=s.charCodeAt(j-1); if(c>=0xD800&&c<=0xDBFF)j--; } parts.push(s.slice(i,j)); i=j; } return {v:3,savedAt:obj.savedAt,n:parts.length,parts:parts}; }
+function fbUnpack(raw){ if(!raw)return null; if(typeof raw==='string')return JSON.parse(raw); if(raw.parts){ const p=Array.isArray(raw.parts)?raw.parts:Object.keys(raw.parts).sort(function(a,b){return a-b;}).map(function(k){return raw.parts[k];}); return JSON.parse(p.join('')); } return raw; }
 async function loadCloud(force){
   try{
     prog('Carregando dados da nuvem (Firebase)...');
@@ -9102,7 +9111,7 @@ async function loadCloud(force){
     if(!r.ok){ if(force)alert('Erro '+r.status+' ao ler do Firebase.'); prog('Falha ao ler da nuvem ('+r.status+').'); return false; }
     let raw=await r.json();
     if(!raw){ if(force)alert('Ainda não há dados na nuvem. No PC, clique em "☁ Salvar na nuvem" primeiro.'); prog('Nuvem vazia ainda.'); return false; }
-    const d=(typeof raw==='string')?JSON.parse(raw):raw;
+    const d=fbUnpack(raw);
     if(d.quotes){ const m={...store.quotes}; for(const nf in d.quotes){ m[nf]={...(m[nf]||{}),...d.quotes[nf]}; } store.quotes=m; }
     if(d.rows && (force || !store.rows.length)) store.rows=d.rows;
     if(d.updated) store.updated=d.updated;
@@ -9110,7 +9119,7 @@ async function loadCloud(force){
     if(d.ressarc) store.ressarc=d.ressarc;
     applySkuMap();
     ['fMonth','lCarrier','lCanal','lUf','lMotivo'].forEach(id=>{const el=document.getElementById(id);if(el)el.dataset.built='';});
-    try{CLOUD_BASE=JSON.parse(JSON.stringify(backupData()));}catch(e){}
+    try{CLOUD_BASE=JSON.parse(JSON.stringify(backupData())); idbSet('cloudBase',CLOUD_BASE);}catch(e){}
     prog('Nuvem carregada: '+store.rows.length+' notas'+(d.updated?(' · atualizado '+fmtDate(d.updated)):'')+'.');
     render();
     return true;
@@ -9143,18 +9152,18 @@ async function cloudSave(silent){
   try{
     if(!silent)prog('Salvando na nuvem (mesclando com o que já está lá)...');
     let theirs={};
-    try{ const rr=await fetch(FB_URL,{cache:'no-store'}); if(rr.ok){ let raw=await rr.json(); if(raw)theirs=(typeof raw==='string')?JSON.parse(raw):raw; } }catch(e){}
+    try{ const rr=await fetch(FB_URL,{cache:'no-store'}); if(rr.ok){ let raw=await rr.json(); if(raw)theirs=fbUnpack(raw)||{}; } else { throw new Error('leitura '+rr.status); } }catch(e){ if(!silent)alert('Não consegui ler a nuvem antes de salvar ('+e.message+'). Não salvei para não sobrescrever.'); prog('Falha ao ler a nuvem antes de salvar — não salvei.'); return; }
     const mine=backupData();
     let merged;
     try{ merged=mergeBackup(CLOUD_BASE||{rows:[],quotes:{},recuperacoes:[],ressarc:{}}, mine, theirs); }
     catch(me){ if(!silent)alert('Não salvei: erro ao mesclar com a nuvem ('+me.message+'). Clique "Carregar da nuvem" e tente de novo.'); prog('Falha no merge — não salvei pra não sobrescrever ninguém.'); return; }
-    const body=JSON.stringify(JSON.stringify(merged));
+    const body=JSON.stringify(fbPack(merged));
     const r=await fetch(FB_URL,{method:'PUT',body});
-    if(!r.ok){ const t=(await r.text()).slice(0,140); if(!silent)alert('Erro '+r.status+' ao salvar: '+t); prog('Falha ao salvar na nuvem ('+r.status+').'); return; }
+    if(!r.ok){ const t=(await r.text()).slice(0,140); const st=document.getElementById('cloudStatus'); if(st){st.textContent='☁ FALHOU ao salvar ('+r.status+') — dados só neste navegador'; st.style.color='var(--re)';} if(!silent)alert('Erro '+r.status+' ao salvar: '+t); prog('⚠ Falha ao salvar na nuvem ('+r.status+'): '+t); return; }
     store.rows=merged.rows; store.quotes=merged.quotes; store.recuperacoes=merged.recuperacoes; store.ressarc=merged.ressarc; if(merged.updated)store.updated=merged.updated;
-    CLOUD_BASE=JSON.parse(JSON.stringify(merged));
+    CLOUD_BASE=JSON.parse(JSON.stringify(merged)); try{ idbSet('cloudBase',CLOUD_BASE); }catch(e){}
     applySkuMap(); if(!silent)render();
-    const st=document.getElementById('cloudStatus'); if(st)st.textContent='☁ salvo '+new Date().toLocaleTimeString('pt-BR');
+    const st=document.getElementById('cloudStatus'); if(st){st.textContent='☁ salvo '+new Date().toLocaleTimeString('pt-BR'); st.style.color='';}
     if(!silent)prog('✅ Salvo na nuvem (mesclado): '+store.rows.length+' notas. As edições de outras pessoas foram preservadas.');
   }catch(e){ if(!silent)alert('Erro ao salvar na nuvem: '+e.message); prog('Falha ao salvar na nuvem: '+e.message); }
 }
@@ -9170,7 +9179,9 @@ async function boot(){
   try{ const lr=JSON.parse(localStorage.getItem('cf.rows')||'[]'); if(lr.length && !MEM.rows.length){ MEM.rows=lr; await idbSet('rows',lr); } if(localStorage.getItem('cf.rows')!==null) localStorage.removeItem('cf.rows'); }catch(e){}
   try{ const lq=JSON.parse(localStorage.getItem('cf.quotes')||'{}'); if(Object.keys(lq).length && !Object.keys(MEM.quotes).length){ MEM.quotes=lq; await idbSet('quotes',lq); } if(localStorage.getItem('cf.quotes')!==null) localStorage.removeItem('cf.quotes'); }catch(e){}
   if(!MEM.rows.length){ try{ await loadCloud(false); }catch(e){} }
-  try{ if(!CLOUD_BASE)CLOUD_BASE=JSON.parse(JSON.stringify(backupData())); }catch(e){}
+  // Base do merge 3-vias: a última versão sincronizada com a nuvem (guardada no IndexedDB). Sem ela, base VAZIA — assim tudo que
+  // existe só aqui conta como "meu" e é somado à nuvem (antes a base era uma cópia do local e as linhas só-locais sumiam no 1º salvamento).
+  try{ if(!CLOUD_BASE){ let pb=null; try{ pb=await idbGet('cloudBase'); }catch(e){} if(pb&&pb.rows){ CLOUD_BASE=pb; } else { CLOUD_BASE={rows:[],quotes:{},recuperacoes:[],ressarc:{}}; if(MEM.rows.length){ try{ setTimeout(scheduleCloudSave,4000); }catch(e){} } } } }catch(e){}
   try{ const ac=document.getElementById('autoCloud'); if(ac){ac.checked=autoCloudOn(); document.getElementById('cloudStatus').textContent=autoCloudOn()?'☁ auto-salvar ligado':'';} }catch(e){}
   if(document.getElementById('apiKey'))document.getElementById('apiKey').value=store.apikey||document.getElementById('apiKey').value;
   tokenStatus();setInterval(tokenStatus,60000);
