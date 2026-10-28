@@ -9051,20 +9051,24 @@ function renderRessarc(){
   const ate=(document.getElementById('rAte')||{}).value||'';
   const q=(((document.getElementById('rSearch')||{}).value)||'').trim().toLowerCase();
   // reconhecidos = frete fixo Amazon aplicado (NÃO usa o filtro da Conciliação) + notas Amazon criadas por "Atualizar novos pedidos" ainda sem CT-e/regra (status "aguardando")
-  const recon=enriched().filter(r=>!r.cteSplit && (r.tmsOrig!=null || (r.ressarcNovo && !(r.cte>0))));
+  const ENR=enriched();
+  // + pedidos que a Amazon ressarciu mas SEM regra de frete fixo aplicada (ficavam fora da aba e o total ressarcido não batia com a planilha do Seller Central)
+  const comReemb=new Set(Object.keys(map).filter(o=>map[o]&&map[o].reembolso>0));
+  const recon=ENR.filter(r=>!r.cteSplit && (r.tmsOrig!=null || (r.ressarcNovo && !(r.cte>0)) || comReemb.has(String(r.order||'').trim())));
   const byOrder={}, seenNF={}, seenCte={};
   for(const r of recon){ const oid=String(r.order||'').trim(); if(!oid)continue; const g=byOrder[oid]||(byOrder[oid]={order:oid,nf:r.nf,sku:r.sku||'',uf:r.uf||'',data:'',negociado:0,orig:0,cte:0,regra:false});
     // Negociado/cobrado original contam UMA vez por NF (linhas duplicadas da mesma NF — ex.: nota criada por "Atualizar novos" + linha real do CT-e — dobravam o valor)
     if(r.tmsOrig!=null){ g.regra=true; const kn=oid+'|'+normNF(r.nf); if(!seenNF[kn]){ seenNF[kn]=1; g.negociado+=(r.tms||0); g.orig+=(r.tmsOrig||0); } }
     // CT-e: não soma o mesmo CT-e duas vezes (mesma NF + mesmo nº sem zeros à esquerda + mesmo valor)
     if(r.cte>0){ const kc=normNF(r.nf)+'|'+String(r.cteNumFech||'').replace(/\D/g,'').replace(/^0+/,'')+'|'+r.cte; if(!seenCte[kc]){ seenCte[kc]=1; g.cte+=r.cte; } } if(!g.sku&&r.sku)g.sku=r.sku; if(!g.uf&&r.uf)g.uf=r.uf; if(!g.data&&r.pedidoData)g.data=String(r.pedidoData).slice(0,10); }
+  for(const o of comReemb){ if(!byOrder[o]) byOrder[o]={order:o,nf:'—',sku:'',uf:'',data:'',negociado:0,orig:0,cte:0,regra:false}; } // ressarcido mas sem linha no dash
   let list=Object.values(byOrder).map(g=>{
     const rb=map[g.order]; const temReemb=!!rb; const reembolso=rb?rb.reembolso:0;
-    const data=g.data || (rb&&rb.date?String(rb.date).slice(0,10):'');
+    const data=(rb&&rb.date?String(rb.date).slice(0,10):'') || g.data; // data do pedido da planilha do Seller Central (bate com os totais mensais dela)
     const recebido=reembolso+g.orig;
     const falta=Math.max(0,Math.round((g.negociado-recebido)*100)/100);
     const aguard=!g.regra && !temReemb; // sem regra de frete fixo na data/SKU/UF (ou dados ainda incompletos) e sem ressarcimento: só acompanhar
-    const status=aguard?'aguard':(!temReemb?'sem':(falta>0.01?'parcial':'ok'));
+    const status=aguard?'aguard':(!temReemb?'sem':(!g.regra?'semregra':(falta>0.01?'parcial':'ok')));
     const coberturaDiff=Math.round((recebido-g.cte)*100)/100;
     return {...g,data,reembolso,temReemb,recebido,falta,status,coberturaDiff,cobre:recebido>=g.cte};
   });
@@ -9099,9 +9103,9 @@ function renderRessarc(){
   try{ renderRessarcPend(); }catch(e){ console.warn('ressarcPend',e); }
   const body=document.getElementById('ressarcBody'); if(!body)return;
   body.innerHTML=list.slice(0,3000).map(x=>{
-    const st=x.status==='aguard'?'<span class="muted">aguardando CT-e / regra</span>':(x.status==='sem'?'<span class="neg">sem ressarcimento</span>':(x.status==='parcial'?'<span class="neg">parcial</span>':'<span class="pos">ok</span>'));
+    const st=x.status==='aguard'?'<span class="muted">aguardando CT-e / regra</span>':(x.status==='sem'?'<span class="neg">sem ressarcimento</span>':(x.status==='semregra'?'<span class="muted">ressarcido · sem regra frete fixo</span>':x.status==='parcial'?'<span class="neg">parcial</span>':'<span class="pos">ok</span>'));
     const semCte=!(x.cte>0);
-    return `<tr><td class="l">${x.order}</td><td class="l muted">${x.nf}</td><td class="l">${x.sku||'—'}</td><td class="l">${x.uf||'—'}</td><td class="l muted">${fmtDay(x.data)}</td><td>${x.status==='aguard'?'—':brl(x.negociado)}</td><td>${x.orig?brl(x.orig):'—'}</td><td class="${x.temReemb?'':'neg'}">${x.temReemb?brl(x.reembolso):'—'}</td><td>${x.status==='aguard'?'—':brl(x.recebido)}</td><td class="${x.falta>0.01?'neg':''}">${x.falta>0.01?brl(x.falta):'—'}</td><td>${st}</td><td>${semCte?'<span class="muted">aguardando CT-e</span>':brl(x.cte)}</td><td class="${x.coberturaDiff<0&&!semCte?'neg':'pos'}">${semCte?'—':brl(x.coberturaDiff)}</td><td>${semCte?'<span class="muted">—</span>':(x.cobre?'<span class="pos">sim</span>':'<span class="neg">não</span>')}</td></tr>`;
+    return `<tr><td class="l">${x.order}</td><td class="l muted">${x.nf}</td><td class="l">${x.sku||'—'}</td><td class="l">${x.uf||'—'}</td><td class="l muted">${fmtDay(x.data)}</td><td>${(x.status==='aguard'||x.status==='semregra')?'—':brl(x.negociado)}</td><td>${x.orig?brl(x.orig):'—'}</td><td class="${x.temReemb?'':'neg'}">${x.temReemb?brl(x.reembolso):'—'}</td><td>${x.status==='aguard'?'—':brl(x.recebido)}</td><td class="${x.falta>0.01?'neg':''}">${x.falta>0.01?brl(x.falta):'—'}</td><td>${st}</td><td>${semCte?'<span class="muted">aguardando CT-e</span>':brl(x.cte)}</td><td class="${x.coberturaDiff<0&&!semCte?'neg':'pos'}">${semCte?'—':brl(x.coberturaDiff)}</td><td>${semCte?'<span class="muted">—</span>':(x.cobre?'<span class="pos">sim</span>':'<span class="neg">não</span>')}</td></tr>`;
   }).join('')||'<tr><td colspan="14" class="muted" style="text-align:center;padding:22px">Suba a planilha do Seller Central para conferir os ressarcimentos.</td></tr>';
 }
 // Pedidos com ressarcimento Amazon (>0) que NÃO têm linha no dash ("sem pedido") ou cuja(s) nota(s) não têm CT-e ("sem CT-e")
