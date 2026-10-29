@@ -110,6 +110,7 @@
   <button class="tab" id="tabBtnPrazos" onclick="showTab('prazos',this)">🚚 Prazos de Entrega</button>
   <button class="tab" id="tabBtnFreteV" onclick="showTab('fretev',this)">🚚 Frete (Vendas)</button>
   <button class="tab" id="tabBtnRessarc" onclick="showTab('ressarc',this)">💸 Ressarcimento Amazon</button>
+  <button class="tab" id="tabBtnSemCte" onclick="showTab('semcte',this)">⏳ Sem CT-e</button>
 </div>
 <div id="tab-conc" class="tabpanel">
 <div class="wrap">
@@ -7759,6 +7760,21 @@ function canalAtalho(vid, dias) {
 " title="Frete (Vendas)" style="width:100%;height:calc(100vh - 130px);border:0;background:var(--bg);display:block"></iframe>
 </div>
 
+<div id="tab-semcte" class="tabpanel" style="display:none">
+<div class="wrap">
+  <div class="card">
+    <h2 style="margin:0 0 6px">Enviados sem CT-e na Intelipost <span class="muted" id="semCteCount"></span></h2>
+    <div class="hint" style="margin-bottom:8px">Pedidos enviados/entregues no Kondado (desde 01/09) que existem na Intelipost, mas ainda NÃO têm linha com CT-e no dash. Esta lista <b>não entra em nenhum total</b> (lucro, CT-e, cobrado): é só para acompanhar. Quando o CT-e chega, a nota entra no dash e sai daqui. Pedidos que não passam pela Intelipost (ex.: logística do Mercado Livre) não aparecem.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
+      <button class="btn" onclick="semCteAtualizar()">Atualizar (Kondado × Intelipost)</button>
+      <button class="btn" onclick="exportSemCte()">Exportar Excel</button>
+      <input id="semCteQ" oninput="semCteRender()" placeholder="buscar pedido / NF / canal / transportadora..." style="flex:1;min-width:220px">
+      <span class="hint" id="semCteStatus"></span>
+    </div>
+    <div id="semCteTbl"></div>
+  </div>
+</div>
+</div>
 <div id="tab-ressarc" class="tabpanel" style="display:none">
   <div class="wrap">
     <div class="card">
@@ -9163,6 +9179,68 @@ function renderRessarc(){
     return `<tr><td class="l">${x.order}</td><td class="l muted">${x.nf}</td><td class="l">${x.sku||'—'}</td><td class="l">${x.uf||'—'}</td><td class="l muted">${fmtDay(x.data)}</td><td>${(x.status==='aguard'||x.status==='semregra')?'—':brl(x.negociado)}</td><td>${x.orig?brl(x.orig):'—'}</td><td class="${x.temReemb?'':'neg'}">${x.temReemb?brl(x.reembolso):'—'}</td><td>${x.status==='aguard'?'—':brl(x.recebido)}</td><td class="${x.falta>0.01?'neg':''}">${x.falta>0.01?brl(x.falta):'—'}</td><td>${st}</td><td>${semCte?'<span class="muted">aguardando CT-e</span>':brl(x.cte)}</td><td class="${x.coberturaDiff<0&&!semCte?'neg':'pos'}">${semCte?'—':brl(x.coberturaDiff)}</td><td>${semCte?'<span class="muted">—</span>':(x.cobre?'<span class="pos">sim</span>':'<span class="neg">não</span>')}</td></tr>`;
   }).join('')||'<tr><td colspan="14" class="muted" style="text-align:center;padding:22px">Suba a planilha do Seller Central para conferir os ressarcimentos.</td></tr>';
 }
+// ===== Aba "Sem CT-e": pedidos enviados (Kondado) que existem na Intelipost mas ainda não têm linha com CT-e no dash =====
+// Não entra em nenhum total. Guarda no IndexedDB (chave 'semCte'): checked = pedidos já conferidos (não existem na Intelipost ou já estão no dash), list = pendentes.
+const SEMCTE_FROM='2026-09-01';
+let SEMCTE={checked:{},list:[],last:''}, SEMCTE_LOADED=false;
+async function semCteLoad(){ if(SEMCTE_LOADED)return; try{ const v=await idbGet('semCte'); if(v&&v.list){ SEMCTE=v; if(!SEMCTE.checked)SEMCTE.checked={}; } }catch(e){} SEMCTE_LOADED=true; }
+function semCteSave(){ idbSet('semCte',SEMCTE).catch(function(){}); }
+function semCteDias(iso){ const t=Date.parse(iso+'T12:00:00'); return isNaN(t)?'':Math.max(0,Math.floor((Date.now()-t)/86400000)); }
+function semCteVisible(){
+  // remove da lista o que já entrou no dash com CT-e
+  const ok=new Set(); store.rows.forEach(function(r){ if(r.cte>0&&r.nf)ok.add(normNF(r.nf)); });
+  return SEMCTE.list.filter(function(x){ return !(x.nf&&ok.has(normNF(x.nf))); });
+}
+function semCteRender(){
+  const el=document.getElementById('semCteTbl'); if(!el)return;
+  let l=semCteVisible(); const q=((document.getElementById('semCteQ')||{}).value||'').trim().toLowerCase();
+  if(q)l=l.filter(function(x){ return (x.key+' '+x.nf+' '+x.can+' '+x.carrier+' '+x.uf).toLowerCase().indexOf(q)>=0; });
+  l=l.slice().sort(function(a,b){ return a.iso<b.iso?-1:(a.iso>b.iso?1:0); });
+  window.__semCteList=l;
+  const c=document.getElementById('semCteCount'); if(c)c.textContent='('+l.length+(SEMCTE.last?(' · conferido em '+fmtDate(SEMCTE.last)):'')+')';
+  el.innerHTML='<div class="tbl-wrap" style="max-height:560px;overflow:auto"><table class="mini"><thead><tr><th class="l">Pedido</th><th class="l">NF</th><th class="l">Canal</th><th class="l">Transportadora</th><th class="l">UF</th><th class="l">Data</th><th>Dias sem CT-e</th><th class="l">Kondado</th></tr></thead><tbody>'+(l.length?l.map(function(x){ const d=semCteDias(x.iso); return '<tr><td class="l">'+x.key+'</td><td class="l muted">'+(x.nf||'—')+'</td><td class="l">'+(x.can||'—')+'</td><td class="l">'+(x.carrier||'—')+'</td><td class="l">'+(x.uf||'—')+'</td><td class="l muted">'+fmtDay(x.iso)+'</td><td class="'+(d>=7?'neg':'')+'">'+d+'</td><td class="l muted">'+(x.sit||'')+'</td></tr>'; }).join(''):'<tr><td colspan="8" class="muted" style="text-align:center;padding:20px">Nenhum pendente. Clique em "Atualizar (Kondado × Intelipost)" para conferir.</td></tr>')+'</tbody></table></div>';
+}
+async function semCteAtualizar(){
+  await semCteLoad();
+  const st=document.getElementById('semCteStatus'); const say=function(t){ if(st)st.textContent=t; };
+  if(!store.apikey){ say('Falta a api-key da Intelipost (passo 1 da aba Conciliação).'); return; }
+  try{
+    say('Lendo pedidos do Kondado...');
+    const r=await kddBatch('tinyerp_pedidos_detalhes',['A2:A','Y2:Y','AC2:AC','BK2:BK','BM2:BM','R2:R']);
+    const id=r[0]||[],can=r[1]||[],ec=r[2]||[],sit=r[3]||[],dt=r[4]||[],uf=r[5]||[];
+    const dashNF=new Set(), dashOrd=new Set(); store.rows.forEach(function(x){ if(x.nf)dashNF.add(normNF(x.nf)); const o=String(x.order||'').trim(); if(o)dashOrd.add(o); });
+    const inList=new Set(SEMCTE.list.map(function(x){return x.key;}));
+    const todo=[];
+    for(let i=0;i<id.length;i++){
+      if(!/Enviado|Entregue/.test(sit[i]||''))continue;
+      const m=String(dt[i]||'').match(/^(\d+)\/(\d+)\/(\d{4})$/); if(!m)continue;
+      const iso=m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0'); if(iso<SEMCTE_FROM)continue;
+      const e=String(ec[i]||'').trim(); if(!e)continue;
+      if(dashOrd.has(e)||dashOrd.has(e.slice(0,9)))continue;
+      if(SEMCTE.checked[e]||inList.has(e))continue;
+      todo.push({e:e,can:can[i]||'',iso:iso,sit:sit[i]||'',uf:uf[i]||''});
+    }
+    let i=0,done=0,add=0;
+    const q=async function(key){ try{ const rr=await fetch(API+'/shipment_order/'+encodeURIComponent(key),{headers:{'api-key':store.apikey,Accept:'application/json'}}); if(!rr.ok)return null; const j=await rr.json(); return (j.content&&(Array.isArray(j.content)?j.content[0]:j.content))||null; }catch(x){ return null; } };
+    const worker=async function(){ while(i<todo.length){ const m=todo[i++];
+      const keys=/Casas|Ponto|Extra/.test(m.can)?[m.e.slice(0,9),m.e]:[m.e]; let d=null; for(const k of keys){ d=await q(k); if(d)break; }
+      const age=semCteDias(m.iso);
+      if(!d){ if(age>5)SEMCTE.checked[m.e]=1; }   // pedidos muito recentes são reconferidos na próxima vez
+      else{ const v=d.shipment_order_volume_array&&d.shipment_order_volume_array[0]; const nf=v&&v.shipment_order_volume_invoice&&v.shipment_order_volume_invoice.invoice_number;
+        if(nf&&dashNF.has(normNF(nf)))SEMCTE.checked[m.e]=1;
+        else{ SEMCTE.list.push({key:m.e,nf:nf||'',can:m.can,carrier:d.delivery_method_name||'',uf:m.uf,iso:m.iso,sit:m.sit}); add++; } }
+      done++; if(done%25===0)say('Conferindo '+done+'/'+todo.length+' na Intelipost...');
+      await new Promise(function(s){setTimeout(s,40);}); } };
+    await Promise.all([worker(),worker(),worker(),worker(),worker()]);
+    SEMCTE.list=semCteVisible(); SEMCTE.last=new Date().toISOString(); semCteSave(); semCteRender();
+    say('Pronto: '+todo.length+' pedidos conferidos, '+add+' novos pendentes.');
+  }catch(e){ say('Erro: '+e.message); }
+}
+function exportSemCte(){
+  const l=window.__semCteList||semCteVisible(); if(!l.length){ alert('Nada para exportar.'); return; }
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(l.map(function(x){ return {Pedido:x.key,NF:x.nf,Canal:x.can,Transportadora:x.carrier,UF:x.uf,Data:fmtDay(x.iso),Dias_sem_CTe:semCteDias(x.iso),Situacao_Kondado:x.sit}; })),'Enviados sem CT-e');
+  XLSX.writeFile(wb,'enviados-sem-cte.xlsx');
+}
 // Pedidos com ressarcimento Amazon (>0) que NÃO têm linha no dash ("sem pedido") ou cuja(s) nota(s) não têm CT-e ("sem CT-e")
 function ressarcPendList(){
   const by={}; for(const r of store.rows){ const o=String(r.order||'').trim(); if(o)(by[o]=by[o]||[]).push(r); }
@@ -9309,7 +9387,7 @@ async function boot(){
 }
 boot();
 (function(){function ck(){const c=document.getElementById("clock");if(c)c.textContent=new Date().toLocaleTimeString("pt-BR");}ck();setInterval(ck,1000);})();
-function showTab(id,btn){document.querySelectorAll(".tabpanel").forEach(p=>{p.style.display="none";});document.getElementById("tab-"+id).style.display="";document.querySelectorAll(".tabbar .tab").forEach(t=>t.classList.remove("on"));btn.classList.add("on");if(id==='ressarc'){try{corrigirPedidosRessarc();}catch(e){}}}
+function showTab(id,btn){document.querySelectorAll(".tabpanel").forEach(p=>{p.style.display="none";});document.getElementById("tab-"+id).style.display="";document.querySelectorAll(".tabbar .tab").forEach(t=>t.classList.remove("on"));btn.classList.add("on");if(id==='ressarc'){try{corrigirPedidosRessarc();}catch(e){}} if(id==='semcte'){try{semCteLoad().then(semCteRender);}catch(e){}}}
 
 // ===== Edição / exclusão manual de linhas =====
 let EDIT_NF=null, EDIT_CTE=null;
